@@ -131,6 +131,10 @@ tiMatch match =
             patTys <- mapM tiPat pats
             t <- tiRhs rhs
             return $ foldr TcFun t patTys
+        InfixMatch _ leftPat _ rightPats rhs Nothing -> do
+            patTys <- mapM tiPat (leftPat : rightPats)
+            t <- tiRhs rhs
+            return $ foldr TcFun t patTys
         _ -> error "tiMatch"
 
 --matchPatterns :: Match l -> Int
@@ -382,7 +386,9 @@ declBinders decl =
                 Match _ name _ _ _ ->
                     let Origin (Resolved gname) _ = ann name
                     in [gname]
-                _ -> error "declBinders, FunBind"
+                InfixMatch _ _ name _ _ _ ->
+                    let Origin (Resolved gname) _ = ann name
+                    in [gname]
         PatBind _ pat _rhs _binds ->
             patBinders pat
         TypeDecl{} -> []
