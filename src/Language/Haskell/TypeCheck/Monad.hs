@@ -120,11 +120,27 @@ unify a b               = error $ "unify: " ++ show (a,b)
 
 unifyMetaVar :: TcMetaVar -> TcType -> TI ()
 unifyMetaVar a (TcMetaVar b) | a == b = return ()
-unifyMetaVar (TcMetaRef _ident ref) rightTy = do
+unifyMetaVar a@(TcMetaRef _ident ref) rightTy = do
     mbSubst <- liftIO $ readIORef ref
     case mbSubst of
         Just leftTy -> unify leftTy rightTy
-        Nothing -> liftIO $ writeIORef ref (Just rightTy)
+        Nothing -> unifyUnboundVar a rightTy
+
+unifyUnboundVar :: TcMetaVar -> TcType -> TI ()
+unifyUnboundVar tv@(TcMetaRef _ident ref) (TcMetaVar b@(TcMetaRef _ refB)) = do
+    mbSubst <- liftIO $ readIORef refB
+    case mbSubst of
+        Just ty -> unify (TcMetaVar tv) ty
+        Nothing -> liftIO $ writeIORef ref (Just $ TcMetaVar b)
+unifyUnboundVar tv@(TcMetaRef _ident ref) b = do
+    tvs <- getMetaTyVars b
+    if tv `elem` tvs
+        then error "occurs check failed"
+        else liftIO $ writeIORef ref (Just b)
+
+getMetaTyVars :: TcType -> TI [TcMetaVar]
+getMetaTyVars = fmap metaVariables . zonk
+
 
 zonk :: TcType -> TI TcType
 zonk ty =
@@ -138,7 +154,10 @@ zonk ty =
             mbTy <- liftIO (readIORef meta)
             case mbTy of
                 Nothing -> pure ty
-                Just sub -> zonk sub
+                Just sub -> do
+                    sub' <- zonk sub
+                    liftIO $ writeIORef meta (Just sub')
+                    return sub'
         TcUnboxedTuple tys -> TcUnboxedTuple <$> mapM zonk tys
 
 tcVarFromName :: Name Origin -> TcVar

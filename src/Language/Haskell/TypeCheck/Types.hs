@@ -86,11 +86,13 @@ instance Doc.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident
 
 instance Doc.Pretty TcMetaVar where
-    pretty (TcMetaRef ident ref) = unsafePerformIO $ do
+    pretty (TcMetaRef ident ref) =
+        -- Doc.parens (Doc.text ident) Doc.<>
+        unsafePerformIO (do
         mbTy <- readIORef ref
         case mbTy of
             Just ty -> return $ Doc.pretty ty
-            Nothing -> return $ Doc.blue (Doc.text ident)
+            Nothing -> return $ Doc.blue (Doc.text ident))
     --pretty (TcMetaRef ident _) = Doc.blue (Doc.text ident)
 
 instance Doc.Pretty t => Doc.Pretty (Qual t) where
