@@ -86,6 +86,9 @@ tiExp expr =
         Lit _ lit -> tiLit lit
         Tuple _ Unboxed args ->
             TcUnboxedTuple <$> mapM tiExp args
+        Let _ binds expr -> do
+            tiBinds binds
+            tiExp expr
         _ -> error $ "tiExp: " ++ show expr
 
 tiPat :: Pat Origin -> TI TcType
