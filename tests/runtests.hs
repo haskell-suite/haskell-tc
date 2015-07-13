@@ -20,9 +20,11 @@ import           Test.Framework.Providers.HUnit
 import           Test.HUnit
 import           Text.PrettyPrint.ANSI.Leijen    (Doc, indent, text, underline,
                                                   vsep, (<>), (<+>))
+import qualified Language.Haskell.TypeCheck.Pretty as P
 import           Text.Printf                     (printf)
 import qualified Data.Map as Map
 import qualified Text.PrettyPrint.ANSI.Leijen as Doc
+import Data.Maybe (isJust)
 
 main :: IO ()
 main = do
@@ -68,15 +70,27 @@ getTcInfo file = do
           allResolved = nub $ foldMap getResolved scoped
           getResolved (Origin (Resolved gname) loc) = [(loc, gname)]
           getResolved _ = []
+          isDefinition (usageLoc, GlobalName definitionLoc _)= usageLoc == definitionLoc
+          (_definitions, usage) = partition isDefinition allResolved
+          definitions = nub [ gname | (usageLoc, gname) <- allResolved ]
+          defIndex = zip definitions [1..]
+          isInterestingCoercion CoerceAp{} = True
+          isInterestingCoercion _ = False
+
       tcEnv <- runTI emptyTcEnv (tiModule scoped)
       return $ Right $ show $ Doc.vsep $
-        [ ppGName usage gname <+> text "::" <+> tyMsg Doc.<$$>
-          Doc.indent 2 (Doc.pretty coercion)
-        | (usage, gname) <- allResolved
+        [ ppQualName qname <+> text "::" <+> tyMsg <> (case mbCoercion of
+            Just coercion -> Doc.char ',' <+> P.pretty coercion
+            Nothing -> Doc.empty) Doc.<$$>
+          ppLocation 2 fileContent usageLoc
+
+        | (usageLoc,gname@(GlobalName defLoc qname))  <- allResolved
         , ty <- maybeToList (Map.lookup gname (tcEnvValues tcEnv))
-        , let tyMsg = Doc.pretty ty
-              coercion = Map.findWithDefault CoerceId usage
-                                (tcEnvCoercions tcEnv) ]
+        , let tyMsg = P.pretty ty
+              isDefinition = usageLoc == defLoc
+              mbCoercion = Map.lookup usageLoc
+                                (tcEnvCoercions tcEnv)
+        , isDefinition || maybe False isInterestingCoercion mbCoercion ]
         ++ [Doc.empty]
 
 ppGName :: SrcSpanInfo -> GlobalName -> Doc
@@ -96,6 +110,10 @@ ppGName srcSpanInfo (GlobalName _defLoc (QualifiedName m ident))
     beginColumn = srcSpanStartColumn srcSpan
     endLine = srcSpanEndLine srcSpan
     endColumn = srcSpanEndColumn srcSpan
+
+ppQualName :: QualifiedName -> Doc
+ppQualName (QualifiedName m ident) =
+  Doc.text m <> Doc.text "." <> Doc.text ident
 
 ppLocation :: Int -> String -> SrcSpanInfo -> Doc
 ppLocation padding file srcSpanInfo =

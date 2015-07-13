@@ -1,14 +1,17 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Language.Haskell.TypeCheck.Monad where
 
-import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.State
 import           Data.IORef
 import           Data.List
 import           Data.Map                               (Map)
 import qualified Data.Map                               as Map
+import           Data.Set                               (Set)
+import qualified Data.Set                               as Set
 import           Language.Haskell.Exts.Annotated.Syntax (Boxed (..), Name,
+                                                         QName (..),
+                                                         SpecialCon (..),
                                                          Type (..), ann)
 import           Language.Haskell.Exts.SrcLoc
 
@@ -20,6 +23,11 @@ data TcEnv = TcEnv
       tcEnvValues    :: Map GlobalName TcType
     , tcEnvUnique    :: Int
     , tcEnvCoercions :: Map SrcSpanInfo Coercion
+    , tcEnvRecursive :: Set GlobalName
+    -- ^ Set of recursive bindings in the current group.
+    , tcEnvKnots     :: [(GlobalName, SrcSpanInfo)]
+    -- ^ Locations where bindings from the current group are used. This is used to set
+    --   proper coercions after generalization.
     }
 newtype TI a = TI { unTI :: StateT TcEnv IO a }
     deriving ( Monad, Functor, Applicative, MonadState TcEnv, MonadIO )
@@ -30,7 +38,9 @@ emptyTcEnv :: TcEnv
 emptyTcEnv = TcEnv
     { tcEnvValues   = Map.empty
     , tcEnvUnique    = 0
-    , tcEnvCoercions = Map.empty }
+    , tcEnvCoercions = Map.empty
+    , tcEnvRecursive = Set.empty
+    , tcEnvKnots = [] }
 
 runTI :: TcEnv -> TI a -> IO TcEnv
 runTI env action = execStateT (unTI f) env
@@ -42,6 +52,23 @@ runTI env action = execStateT (unTI f) env
             ty' <- zonk ty
             return (src, ty')
         modify $ \st -> st{tcEnvValues = Map.fromList vars'}
+
+withRecursive :: [GlobalName] -> TI a -> TI a
+withRecursive rec action = do
+    modify $ \st -> st{tcEnvRecursive = Set.fromList rec}
+    a <- action
+    modify $ \st -> st{tcEnvRecursive = Set.empty}
+    return a
+
+isRecursive :: GlobalName -> TI Bool
+isRecursive gname = gets $ Set.member gname . tcEnvRecursive
+
+setKnot :: GlobalName -> SrcSpanInfo -> TI ()
+setKnot gname src =
+    modify $ \st -> st{tcEnvKnots = (gname,src) : tcEnvKnots st}
+
+getKnots :: TI [(GlobalName, SrcSpanInfo)]
+getKnots = gets tcEnvKnots
 
 newUnique :: TI Int
 newUnique = do
@@ -68,6 +95,9 @@ findAssumption ident = do
 setCoercion :: SrcSpanInfo -> Coercion -> TI ()
 setCoercion src coercion = modify $ \env ->
     env{ tcEnvCoercions = Map.insert src coercion (tcEnvCoercions env) }
+
+getCoercion :: SrcSpanInfo -> TI Coercion
+getCoercion src = gets $ Map.findWithDefault CoerceId src . tcEnvCoercions
 
 -- setGlobal :: QualifiedName -> TcType -> TI ()
 -- setGlobal gname scheme = modify $ \env ->
@@ -98,10 +128,14 @@ freshInst (TcForall tyvars (preds :=> t0)) = do
                 TcCon{} -> ty
                 TcMetaVar{} -> ty -- FIXME: Is this an error?
                 TcUnboxedTuple tys -> TcUnboxedTuple (map instantiate tys)
-    return (map instPred preds :=> instantiate t0, CoerceAp refs)
+                TcTuple tys -> TcTuple (map instantiate tys)
+                TcList elt -> TcList (instantiate elt)
+    return (map instPred preds :=> instantiate t0, CoerceAp $ map TcMetaVar refs)
 freshInst ty = pure ([] :=> ty, CoerceId )
 
 unify :: TcType -> TcType -> TI ()
+unify (TcTuple as) (TcTuple bs) | length as == length bs =
+    zipWithM_ unify as bs
 unify (TcApp la lb) (TcApp ra rb) = do
     unify la ra
     unify lb rb
@@ -145,7 +179,7 @@ getMetaTyVars = fmap metaVariables . zonk
 zonk :: TcType -> TI TcType
 zonk ty =
     case ty of
-        TcForall tyvars (pred :=> tty) -> TcForall tyvars <$> ( (pred :=> ) <$> zonk tty)
+        TcForall tyvars (predicates :=> tty) -> TcForall tyvars <$> ( (predicates :=> ) <$> zonk tty)
         TcFun a b -> TcFun <$> zonk a <*> zonk b
         TcApp a b -> TcApp <$> zonk a <*> zonk b
         TcRef{}   -> pure ty
@@ -159,6 +193,8 @@ zonk ty =
                     liftIO $ writeIORef meta (Just sub')
                     return sub'
         TcUnboxedTuple tys -> TcUnboxedTuple <$> mapM zonk tys
+        TcTuple tys -> TcTuple <$> mapM zonk tys
+        TcList elt -> TcList <$> zonk elt
 
 tcVarFromName :: Name Origin -> TcVar
 tcVarFromName name =
@@ -177,12 +213,16 @@ typeToTcType ty =
     case ty of
         TyFun _ a b -> TcFun (typeToTcType a) (typeToTcType b)
         TyVar _ name -> TcRef (tcVarFromName name)
+        TyCon _ (Special _ UnitCon{}) ->
+            TcTuple []
         TyCon _ conName ->
             let Origin (Resolved (GlobalName _ qname)) _ = ann conName
             in TcCon qname
         TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
         TyParen _ t -> typeToTcType t
         TyTuple _ Unboxed tys -> TcUnboxedTuple (map typeToTcType tys)
+        TyTuple _ Boxed tys -> TcTuple (map typeToTcType tys)
+        TyList _ elt -> TcList (typeToTcType elt)
         _ -> error $ "typeToTcType: " ++ show ty
 
 --tcTypeToScheme :: TcType -> TcType
@@ -204,6 +244,8 @@ freeTcVariables = nub . worker []
             TcCon{} -> []
             TcUnboxedTuple tys -> concatMap (worker ignore) tys
             TcMetaVar{} -> []
+            TcTuple tys -> concatMap (worker ignore) tys
+            TcList elt -> worker ignore elt
 
 metaVariables :: TcType -> [TcMetaVar]
 metaVariables ty =
@@ -216,6 +258,8 @@ metaVariables ty =
         TcCon{} -> []
         TcMetaVar var -> [var]
         TcUnboxedTuple tys -> concatMap metaVariables tys
+        TcTuple tys -> concatMap metaVariables tys
+        TcList elt -> metaVariables elt
 
 -- Replace free meta vars with tcvars. Compute the smallest context.
 --
@@ -229,16 +273,6 @@ generalize free ty = do
   where
     unbound = nub (metaVariables ty) \\ free
     toTcVar (TcMetaRef name _) = TcVar name noSrcSpanInfo
-    --replace ty =
-    --    case ty of
-    --        TcForall{} -> error "generalize"
-    --        TcFun a b -> TcFun (replace a) (replace b)
-    --        TcApp a b -> TcApp (replace a) (replace b)
-    --        TcRef{}   -> ty
-    --        TcCon{}   -> ty
-    --        TcMetaVar var
-    --            | var `elem` unbound -> TcRef (toTcVar var)
-    --            | otherwise          -> ty
 
 noSrcSpanInfo :: SrcSpanInfo
 noSrcSpanInfo = infoSpan (mkSrcSpan noLoc noLoc) []

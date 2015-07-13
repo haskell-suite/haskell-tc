@@ -1,12 +1,9 @@
 module Language.Haskell.TypeCheck.Infer where
 
-import           Control.Applicative
 import           Control.Monad
-import           Control.Monad.Trans
-import           Data.Graph
+import           Data.Graph ( stronglyConnComp, flattenSCC )
 import           Language.Haskell.Exts.Annotated.Syntax
 import           Language.Haskell.Exts.SrcLoc
-import qualified Text.PrettyPrint.ANSI.Leijen as Doc
 
 import           Language.Haskell.Scope
 import           Language.Haskell.TypeCheck.Monad
@@ -55,8 +52,13 @@ tiExp expr =
             let Origin (Resolved gname) pin = ann qname
             tySig <- findAssumption gname
             (_preds :=> ty, coercion) <- freshInst tySig
-            setCoercion pin coercion
+            isRec <- isRecursive gname
+            if isRec
+                then setKnot gname pin
+                else setCoercion pin coercion
             return ty
+        Con _ (Special _ (UnitCon _)) ->
+            return $ TcTuple []
         Con _ conName -> do
             let Origin (Resolved gname) pin = ann conName
             tySig <- findAssumption gname
@@ -86,9 +88,9 @@ tiExp expr =
         Lit _ lit -> tiLit lit
         Tuple _ Unboxed args ->
             TcUnboxedTuple <$> mapM tiExp args
-        Let _ binds expr -> do
+        Let _ binds subExpr -> do
             tiBinds binds
-            tiExp expr
+            tiExp subExpr
         _ -> error $ "tiExp: " ++ show expr
 
 tiPat :: Pat Origin -> TI TcType
@@ -103,7 +105,7 @@ tiPat pat =
             ty <- TcMetaVar <$> newTcVar
             let Origin (Resolved gname) _ = ann con
             conSig <- findAssumption gname
-            (_preds :=> conTy, coercion) <- freshInst conSig
+            (_preds :=> conTy, _coercion) <- freshInst conSig
             patTys <- mapM tiPat pats
             unify conTy (foldr TcFun ty patTys)
             return ty
@@ -205,10 +207,10 @@ tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
             let Origin (Resolved gname) _ = ann con
+            setCoercion (globalNameSrcSpanInfo gname) (CoerceAbs tvars)
             return (gname, map typeToTcType tys)
         RecDecl _ con fields -> do
-            let Origin (Resolved gname) _ = ann con
-                conTys = concat
+            let conTys = concat
                     [ replicate (length names) (typeToTcType ty)
                     | FieldDecl _ names ty <- fields ]
             forM_ fields $ \(FieldDecl _ names fTy) -> do
@@ -216,6 +218,7 @@ tiConDecl tvars dty conDecl =
                 forM_ names $ \name -> do
                     let Origin (Resolved gname) _ = ann name
                     setAssumption gname (TcForall tvars $ [] :=> ty)
+            let Origin (Resolved gname) _ = ann con
             return (gname, conTys)
         _ -> error "tiConDecl"
 
@@ -276,13 +279,13 @@ tiExpl (decl, binder) = do
     ty <- TcMetaVar <$> newTcVar
     tiDecl decl ty
     tySig <- findAssumption binder
-    (_preds :=> expected, coercion) <- freshInst tySig
+    (_preds :=> expected, _coercion) <- freshInst tySig
     unify ty expected
     (_, coercion) <- generalize free expected
     setCoercion (globalNameSrcSpanInfo binder) coercion
 
 tiDecls :: [(Decl Origin, GlobalName)] -> TI ()
-tiDecls decls = do
+tiDecls decls = withRecursive thisBindGroup $ do
     free <- getFreeMetaVariables
     -- liftIO $ print $ map snd decls
     forM_ decls $ \(_decl, binder) -> do
@@ -294,11 +297,32 @@ tiDecls decls = do
     forM_ decls $ \(_decl, binder) -> do
         ty <- findAssumption binder
         rTy <- zonk ty
+        setAssumption binder rTy
+    forM_ decls $ \(_decl, binder) -> do
+        ty <- findAssumption binder
+        -- rTy <- zonk ty
+        rTy <- return ty
         -- liftIO $ print $ Doc.pretty rTy
         (gTy, coercion) <- generalize free rTy
         setCoercion (globalNameSrcSpanInfo binder) coercion
         -- liftIO $ print $ Doc.pretty gTy
         setAssumption binder gTy
+
+    -- forM_ decls $ \(_decl, binder) -> do
+    --     ty <- findAssumption binder
+    --     rTy <- zonk ty
+    --     setAssumption binder rTy
+
+    knots <- getKnots
+    forM_ knots $ \(binder, usageLoc) -> do
+        coerce <- getCoercion (globalNameSrcSpanInfo binder)
+        case coerce of
+            CoerceAbs tvs -> setCoercion usageLoc (CoerceAp $ map TcRef tvs)
+            _             -> return ()
+
+  where
+    thisBindGroup = map snd decls
+
 
 
     --error $ "tiDecls: " ++ show decls
