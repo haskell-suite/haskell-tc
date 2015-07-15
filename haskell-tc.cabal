@@ -19,6 +19,7 @@ library
   exposed-modules:     Language.Haskell.TypeCheck,
                        Language.Haskell.TypeCheck.Infer,
                        Language.Haskell.TypeCheck.Types,
+                       Language.Haskell.TypeCheck.Pretty,
                        Language.Haskell.TypeCheck.Monad
   -- other-modules:       
   other-extensions:    GeneralizedNewtypeDeriving

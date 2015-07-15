@@ -134,6 +134,8 @@ freshInst (TcForall tyvars (preds :=> t0)) = do
 freshInst ty = pure ([] :=> ty, CoerceId )
 
 unify :: TcType -> TcType -> TI ()
+unify (TcList a) (TcList b) =
+    unify a b
 unify (TcTuple as) (TcTuple bs) | length as == length bs =
     zipWithM_ unify as bs
 unify (TcApp la lb) (TcApp ra rb) = do

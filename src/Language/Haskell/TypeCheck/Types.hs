@@ -91,10 +91,9 @@ instance P.Pretty TcType where
                 Doc.text "(#" Doc.<+>
                 (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
                 Doc.text "#)"
-            TcTuple tys ->
-                Doc.text "(" Doc.<+>
-                (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
-                Doc.text ")"
+            TcTuple tys -> Doc.tupled (map P.pretty tys)
+            TcList ty ->
+                Doc.brackets (P.pretty ty)
             TcUndefined ->
                 Doc.red (Doc.text "undefined")
 

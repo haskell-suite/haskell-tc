@@ -57,8 +57,12 @@ tiExp expr =
                 then setKnot gname pin
                 else setCoercion pin coercion
             return ty
-        Con _ (Special _ (UnitCon _)) ->
+        Con _ (Special _ UnitCon{}) ->
             return $ TcTuple []
+        Con _ (Special _ Cons{}) -> do
+            ty <- TcMetaVar <$> newTcVar
+            -- a -> List a -> List a
+            return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
         Con _ conName -> do
             let Origin (Resolved gname) pin = ann conName
             tySig <- findAssumption gname
@@ -91,7 +95,26 @@ tiExp expr =
         Let _ binds subExpr -> do
             tiBinds binds
             tiExp subExpr
+        List _ exprs -> do
+            ty <- TcMetaVar <$> newTcVar
+            exprTys <- mapM tiExp exprs
+            mapM_ (unify ty) exprTys
+            return $ TcList ty
         _ -> error $ "tiExp: " ++ show expr
+
+findConAssumption :: QName Origin -> TI TcType
+findConAssumption qname = case qname of
+    Special _ con -> case con of
+        UnitCon{} -> return (TcTuple [])
+        ListCon{} -> do
+            ty <- TcMetaVar <$> newTcVar
+            return $ TcList ty
+        Cons{} -> do
+            ty <- TcMetaVar <$> newTcVar
+            return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
+    _ -> do
+        let Origin (Resolved gname) _ = ann qname
+        findAssumption gname
 
 tiPat :: Pat Origin -> TI TcType
 tiPat pat =
@@ -103,8 +126,7 @@ tiPat pat =
             return tv
         PApp _ con pats -> do
             ty <- TcMetaVar <$> newTcVar
-            let Origin (Resolved gname) _ = ann con
-            conSig <- findAssumption gname
+            conSig <- findConAssumption con
             (_preds :=> conTy, _coercion) <- freshInst conSig
             patTys <- mapM tiPat pats
             unify conTy (foldr TcFun ty patTys)
@@ -119,6 +141,18 @@ tiPat pat =
             return $ TcUnboxedTuple patTys
         PLit _ _sign literal ->
             tiLit literal
+        PList _ pats -> do
+            ty <- TcMetaVar <$> newTcVar
+            patTys <- mapM tiPat pats
+            mapM_ (unify ty) patTys
+            return $ TcList ty
+        PInfixApp _ a con b -> do
+            ty <- TcMetaVar <$> newTcVar
+            aTy <- tiPat a
+            bTy <- tiPat b
+            conSig <- findConAssumption con
+            unify conSig (aTy `TcFun` (bTy `TcFun` ty))
+            return ty
         _ -> error $ "tiPat: " ++ show pat
 
 tiRhs :: Rhs Origin -> TI TcType
