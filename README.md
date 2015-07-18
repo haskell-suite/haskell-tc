@@ -6,6 +6,8 @@ This package contains an implementation of a bidirectional typechecker for Haske
 TC Overview
 ===========
 
+I'm no expert on type theory. This is how thing make sense in my head; take it with a grain of salt.
+
 Basic HM
 --------
 
@@ -30,9 +32,13 @@ Extention to bidirectional TC. Instead of having to distinct modes (up and down)
     fn Nothing = ([],[])
     fn (Just g) = (g [1,2,3], g ['a','b','c'])
 
-This is called impredicativity. Both HM and Bidirectional are predicative.
+The same goes for using higher ranked types together with polymorphic functions. In the following example, '$' has a polymorphic type and 'runST' has a rank-2 type.
+
+    fn = runST $ do ...
+
+This is called impredicativity. Both HM and Bidirectional are predicative. Boxy types are implemented by jhc.
 
 OutsideIn
 ---------
 
-The latest and greatest. Breaks the pattern of the previous extensions by stricty speaking not being backwards compatible with HM.
+The latest and greatest. Breaks the pattern of the previous extensions by stricty speaking not being backwards compatible with HM. Used by GHC.
