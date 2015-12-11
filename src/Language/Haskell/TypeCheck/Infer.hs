@@ -29,6 +29,8 @@ tiLit lit =
             (TcCon (mkBuiltIn "LHC.Prim" "Addr"))
             (TcCon (mkBuiltIn "LHC.Prim" "I8"))
         PrimChar{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "I32")
+        Int{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Int")
+        Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
         _ -> error $ "tiLit: " ++ show lit
 
 tiQOp :: QOp Origin -> TI TcType
@@ -36,6 +38,66 @@ tiQOp op =
     case op of
         QVarOp src var -> tiExp (Var src var)
         QConOp src con -> tiExp (Con src con)
+
+tiStmts :: [Stmt Origin] -> TI TcType
+tiStmts [] = error "tiStmts: empty list"
+tiStmts [stmt] =
+  case stmt of
+    Generator{} -> error $ "tiStmts: " ++ show [stmt]
+    Qualifier _ expr -> tiExp expr
+    _ -> error $ "tiStmts: " ++ show stmt
+tiStmts (stmt:stmts) =
+  case stmt of
+    Generator (Origin _ pin) pat expr -> do
+      ty <- TcMetaVar <$> newTcVar
+
+      patTy <- tiPat pat
+      exprTy <- tiExp expr
+      restTy <- tiStmts stmts
+
+      (_preds :=> bindIOTy, coercion) <- freshInst bindIOSig
+      let ioPatTy = ioType `TcApp` patTy
+
+      unify ioPatTy exprTy -- IO patTy == exprTy
+      unify bindIOTy (exprTy `TcFun` ((patTy `TcFun` restTy) `TcFun` (ioType `TcApp` ty))) -- bindIO == expr -> (pat -> rest) -> IO _
+
+      setCoercion pin coercion
+
+      return restTy
+
+    Qualifier (Origin _ pin) expr -> do
+      ty <- TcMetaVar <$> newTcVar
+      exprTy <- tiExp expr
+      restTy <- tiStmts stmts
+
+      (_preds :=> thenIOTy, coercion) <- freshInst thenIOSig
+      unify thenIOTy (exprTy `TcFun` (restTy `TcFun` (ioType `TcApp` ty)))
+
+      setCoercion pin coercion
+
+      return restTy
+    _ -> error $ "tiStmts: " ++ show (stmt:stmts)
+
+-- forall a b. IO a -> IO b -> IO b
+thenIOSig :: TcType
+thenIOSig = TcForall [aRef, bRef] ([] :=> (ioA `TcFun` (ioB `TcFun` ioB)))
+  where
+    aRef = TcVar "a" noSrcSpanInfo
+    bRef = TcVar "b" noSrcSpanInfo
+    ioA = ioType `TcApp` TcRef aRef
+    ioB = ioType `TcApp` TcRef bRef
+
+-- forall a b. IO a -> (a -> IO b) -> IO b
+bindIOSig :: TcType
+bindIOSig = TcForall [aRef, bRef] ([] :=> (ioA `TcFun` ((TcRef aRef `TcFun` ioB) `TcFun` ioB)))
+  where
+    aRef = TcVar "a" noSrcSpanInfo
+    bRef = TcVar "b" noSrcSpanInfo
+    ioA = ioType `TcApp` TcRef aRef
+    ioB = ioType `TcApp` TcRef bRef
+
+ioType :: TcType
+ioType = TcCon (mkBuiltIn "LHC.Prim" "IO")
 
 tiExp :: Exp Origin -> TI TcType
 tiExp expr =
@@ -100,6 +162,7 @@ tiExp expr =
             exprTys <- mapM tiExp exprs
             mapM_ (unify ty) exprTys
             return $ TcList ty
+        Do _ stmts -> tiStmts stmts
         _ -> error $ "tiExp: " ++ show expr
 
 findConAssumption :: QName Origin -> TI TcType
@@ -221,16 +284,16 @@ declIdent decl =
 --        liftIO $ print rTy
     -- qualify the type sigs...
 
-declHeadType :: DeclHead Origin -> ([TcVar], TcType)
+declHeadType :: DeclHead Origin -> ([TcVar], GlobalName)
 declHeadType dhead =
     case dhead of
         DHead _ name ->
-            let Origin (Resolved (GlobalName _ qname)) _ = ann name
-            in ([], TcCon qname)
+            let Origin (Resolved gname) _ = ann name
+            in ([], gname)
         DHApp _ dh tyVarBind ->
-            let (tcVars, ty) = declHeadType dh
+            let (tcVars, gname) = declHeadType dh
                 var = tcVarFromTyVarBind tyVarBind
-            in (tcVars ++ [var], TcApp ty (TcRef var))
+            in (tcVars ++ [var], gname)
         _ -> error "declHeadType"
   where
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
@@ -282,12 +345,25 @@ tiClassDecl decl =
     --     let scheme = TcForall [tcVar] ([IsIn gname (TcRef tcVar)] :=> tcType)
     --     setAssumption src scheme
 
+tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl Origin -> TI ()
+tiPrepareClassDecl className [tyVar] decl =
+    case decl of
+      ClsDecl _ (TypeSig _ names ty) -> do
+        forM_ names $ \name -> do
+          let Origin (Resolved gname) _ = ann name
+              ty' = typeToTcType ty
+          setAssumption gname
+            (TcForall (freeTcVariables ty') ([IsIn className (TcRef tyVar)] :=> ty'))
+      _ -> error $ "tiPrepareClassDecl: " ++ show decl
+tiPrepareClassDecl _ _ decl =
+    error $ "tiPrepareClassDecl: " ++ show decl
 
 tiPrepareDecl :: Decl Origin -> TI ()
 tiPrepareDecl decl =
     case decl of
         DataDecl _ _ _ dhead cons _ -> do
-            let (tcvars, dataTy) = declHeadType dhead
+            let (tcvars, GlobalName _ qname) = declHeadType dhead
+                dataTy = foldl TcApp (TcCon qname) (map TcRef tcvars)
             forM_ cons $ \qualCon -> do
                 (con, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
                 let ty = foldr TcFun dataTy fieldTys
@@ -305,6 +381,10 @@ tiPrepareDecl decl =
                     (explicitTcForall $ typeToTcType ty)
                 --setCoercion (nameIdentifier name)
                 --    (CoerceAbs (freeTcVariables $ typeToTcType ty))
+        ClassDecl _ _cxt dhead _funDeps (Just decls) -> do
+          let (tcvars, className) = declHeadType dhead
+          forM_ decls $ \clsDecl ->
+            tiPrepareClassDecl className tcvars clsDecl
         _ -> error $ "tiPrepareDecl: " ++ show decl
 
 tiExpl :: (Decl Origin, GlobalName) -> TI ()
@@ -415,7 +495,13 @@ declFreeVariables decl =
             InfixApp _ a op b -> freeExp a ++ freeQOp op ++ freeExp b
             Paren _ e -> freeExp e
             Lambda _ _pats e -> freeExp e
+            Do _ stmts -> concatMap freeStmt stmts
             _ -> error $ "freeExp: " ++ show expr
+    freeStmt stmt =
+        case stmt of
+            Generator _ _pat expr -> freeExp expr
+            Qualifier _ expr -> freeExp expr
+            _ -> error $ "freeStmt: " ++ show stmt
     freeQOp op =
         case op of
             QVarOp _ qname -> [qnameIdentifier qname]
@@ -454,6 +540,7 @@ declBinders decl =
             patBinders pat
         TypeDecl{} -> []
         TypeSig{} -> []
+        ClassDecl{} -> []
         _ -> error $ "declBinders: " ++ show decl
 
 patBinders :: Pat Origin -> [GlobalName]

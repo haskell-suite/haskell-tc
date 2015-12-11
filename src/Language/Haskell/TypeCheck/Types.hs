@@ -113,11 +113,19 @@ instance P.Pretty TcMetaVar where
 instance P.Pretty t => P.Pretty (Qual t) where
     prettyPrec p ([] :=> t) = P.prettyPrec p t
     prettyPrec p (quals :=> t) =
-        Doc.parens (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty quals) Doc.<+>
+        P.parensIf (length quals > 1) (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty quals) Doc.<+>
         Doc.text "⇒" Doc.<+> P.prettyPrec p t
 
+instance P.Pretty GlobalName where
+    pretty (GlobalName _ qname) = P.pretty qname
+
+instance P.Pretty QualifiedName where
+    pretty (QualifiedName m ident) =
+        Doc.text (m ++ "." ++ ident)
+
 instance P.Pretty Pred where
-    pretty (IsIn _gname _t) = error "Pretty pred"
+    pretty (IsIn gname t) =
+        P.pretty gname Doc.<+> P.pretty t
 
 data Qual t = [Pred] :=> t
     deriving ( Show, Eq )
