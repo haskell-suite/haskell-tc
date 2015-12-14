@@ -51,7 +51,12 @@ runTI env action = execStateT (unTI f) env
         vars' <- forM (Map.assocs vars) $ \(src, ty) -> do
             ty' <- zonk ty
             return (src, ty')
-        modify $ \st -> st{tcEnvValues = Map.fromList vars'}
+        coercions <- gets tcEnvCoercions
+        coercions' <- forM (Map.assocs coercions) $ \(src, coerce) -> do
+            coerce' <- zonkCoercion coerce
+            return (src, coerce')
+        modify $ \st -> st{tcEnvValues = Map.fromList vars'
+                          ,tcEnvCoercions = Map.fromList coercions'}
 
 withRecursive :: [GlobalName] -> TI a -> TI a
 withRecursive rec action = do
@@ -197,6 +202,13 @@ zonk ty =
         TcUnboxedTuple tys -> TcUnboxedTuple <$> mapM zonk tys
         TcTuple tys -> TcTuple <$> mapM zonk tys
         TcList elt -> TcList <$> zonk elt
+
+zonkCoercion :: Coercion -> TI Coercion
+zonkCoercion coerce =
+    case coerce of
+        CoerceId       -> pure CoerceId
+        CoerceAbs vars -> pure $ CoerceAbs vars
+        CoerceAp tys   -> CoerceAp <$> mapM zonk tys
 
 tcVarFromName :: Name Origin -> TcVar
 tcVarFromName name =

@@ -1,6 +1,5 @@
 module Language.Haskell.TypeCheck.Types where
 
-import           Data.Binary
 import           Data.IORef
 import           Language.Haskell.Exts.SrcLoc
 import qualified Language.Haskell.TypeCheck.Pretty as P
@@ -22,13 +21,6 @@ instance Show TcMetaVar where
 instance Eq TcMetaVar where
     TcMetaRef _ r1 == TcMetaRef _ r2 = r1==r2
 
-instance Binary TcMetaVar where
-    put (TcMetaRef name _) = put name
-    -- put = error "Binary.put: TcMetaVar"
-    get = do
-        name <- get
-        return $ TcMetaRef name (unsafePerformIO $ newIORef Nothing)
-    -- get = error "Binary.get: TcMetaVar"
 
 data TcType
     = TcForall [TcVar] (Qual TcType)
