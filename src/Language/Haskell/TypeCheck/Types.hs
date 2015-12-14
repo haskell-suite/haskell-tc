@@ -57,9 +57,11 @@ instance P.Pretty Coercion where
             CoerceId  ->
                 Doc.text "id"
             CoerceAbs vars ->
-                Doc.text "abs" Doc.<+> P.pretty vars
+                Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<> Doc.dot
+                -- Doc.text "abs" Doc.<+> P.pretty vars
             CoerceAp metas ->
-                Doc.text "ap" Doc.<+> P.pretty metas
+                Doc.text "@" Doc.<+> Doc.hsep (map P.pretty metas)
+                -- Doc.text "ap" Doc.<+> P.pretty metas
 
 -- for arguments to the left of ->
 arrowPrecedence :: Int
