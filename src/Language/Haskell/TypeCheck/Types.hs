@@ -52,7 +52,7 @@ instance P.Pretty Coercion where
                 Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<> Doc.dot
                 -- Doc.text "abs" Doc.<+> P.pretty vars
             CoerceAp metas ->
-                Doc.text "@" Doc.<+> Doc.hsep (map P.pretty metas)
+                Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) metas)
                 -- Doc.text "ap" Doc.<+> P.pretty metas
 
 -- for arguments to the left of ->
@@ -67,7 +67,7 @@ instance P.Pretty TcType where
     prettyPrec p ty =
         case ty of
             TcForall [] ([] :=> t) ->
-                P.pretty t
+                P.prettyPrec p t
             TcForall vars qual ->
                 Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
                 Doc.dot Doc.<+> P.pretty qual
@@ -80,7 +80,7 @@ instance P.Pretty TcType where
                 Doc.text (m ++ "." ++ ident)
             TcRef var -> P.pretty var
             TcMetaVar meta ->
-                P.pretty meta
+                P.prettyPrec p meta
             TcUnboxedTuple tys ->
                 Doc.text "(#" Doc.<+>
                 (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
@@ -95,12 +95,12 @@ instance P.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident
 
 instance P.Pretty TcMetaVar where
-    pretty (TcMetaRef ident ref) =
+    prettyPrec p (TcMetaRef ident ref) =
         -- Doc.parens (Doc.text ident) Doc.<>
         unsafePerformIO (do
         mbTy <- readIORef ref
         case mbTy of
-            Just ty -> return $ P.pretty ty
+            Just ty -> return $ P.prettyPrec p ty
             Nothing -> return $ Doc.blue (Doc.text ident))
     --pretty (TcMetaRef ident _) = Doc.blue (Doc.text ident)
 
