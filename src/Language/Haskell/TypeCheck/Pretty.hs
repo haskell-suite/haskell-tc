@@ -1,6 +1,10 @@
-module Language.Haskell.TypeCheck.Pretty where
+module Language.Haskell.TypeCheck.Pretty
+  ( Pretty(..)
+  , parensIf
+  , module Text.PrettyPrint.ANSI.Leijen
+  ) where
 
-import Text.PrettyPrint.ANSI.Leijen (Doc, parens, list)
+import Text.PrettyPrint.ANSI.Leijen hiding (Pretty(..))
 
 class Pretty a where
   prettyPrec :: Int -> a -> Doc
