@@ -13,14 +13,15 @@ import           Language.Haskell.Scope            (GlobalName (..),
 -- The binding point is not enough since ty vars can be bound at an implicit
 -- forall.
 data TcVar = TcVar String SrcSpanInfo
-    deriving ( Show, Eq )
+    deriving ( Show, Eq, Ord )
 
 data TcMetaVar = TcMetaRef String (IORef (Maybe TcType))
 instance Show TcMetaVar where
     show (TcMetaRef name _) = name
 instance Eq TcMetaVar where
     TcMetaRef _ r1 == TcMetaRef _ r2 = r1==r2
-
+instance Ord TcMetaVar where
+    compare (TcMetaRef i1 _) (TcMetaRef i2 _) = compare i1 i2
 
 data TcType
     = TcForall [TcVar] (Qual TcType)
@@ -35,7 +36,7 @@ data TcType
     | TcTuple [TcType]
     | TcList TcType
     | TcUndefined
-    deriving ( Show, Eq )
+    deriving ( Show, Eq, Ord )
 
 data Coercion
     = CoerceId
@@ -122,9 +123,9 @@ instance P.Pretty Pred where
         P.pretty gname Doc.<+> P.pretty t
 
 data Qual t = [Pred] :=> t
-    deriving ( Show, Eq )
+    deriving ( Show, Eq, Ord )
 data Pred = IsIn GlobalName TcType
-    deriving ( Show, Eq )
+    deriving ( Show, Eq, Ord )
 
 -- Uninstantiated type signature.
 -- eg: forall a. Maybe a -- type of Nothing
