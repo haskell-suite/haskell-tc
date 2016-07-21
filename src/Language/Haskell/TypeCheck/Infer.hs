@@ -121,9 +121,10 @@ tiExp expr =
             return ty
         Con _ (Special _ UnitCon{}) ->
             return $ TcTuple []
-        Con _ (Special _ Cons{}) -> do
+        Con _ (Special (Origin _ pin) Cons{}) -> do
             ty <- TcMetaVar <$> newTcVar
-            -- a -> List a -> List a
+            -- forall a. a -> List a -> List a
+            setCoercion pin $ CoerceAp [ty]
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
         Con _ conName -> do
             let Origin (Resolved gname) pin = ann conName
@@ -157,8 +158,9 @@ tiExp expr =
         Let _ binds subExpr -> do
             tiBinds binds
             tiExp subExpr
-        List _ exprs -> do
+        List (Origin _ pin) exprs -> do
             ty <- TcMetaVar <$> newTcVar
+            setCoercion pin $ CoerceAp [ty]
             exprTys <- mapM tiExp exprs
             mapM_ (unify ty) exprTys
             return $ TcList ty
