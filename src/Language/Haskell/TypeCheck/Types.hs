@@ -77,6 +77,8 @@ instance P.Pretty TcType where
                 Doc.text "→ " Doc.<+> P.pretty b
             TcApp a b -> P.parensIf (p > arrowPrecedence) $
                 P.pretty a Doc.<+> P.prettyPrec appPrecedence b
+            TcCon (QualifiedName "" ident) ->
+                Doc.text ident
             TcCon (QualifiedName m ident) ->
                 Doc.text (m ++ "." ++ ident)
             TcRef var -> P.pretty var
@@ -134,5 +136,3 @@ data Pred = IsIn GlobalName TcType
 --    deriving ( Show )
 
 --data Typed = Typed TcType Origin
-
-

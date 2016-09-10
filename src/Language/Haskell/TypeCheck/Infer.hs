@@ -123,7 +123,7 @@ tiExp expr =
             return $ TcTuple []
         Con _ (Special (Origin _ pin) Cons{}) -> do
             ty <- TcMetaVar <$> newTcVar
-            -- forall a. a -> List a -> List a
+            -- (:) :: forall a. a -> List a -> List a
             setCoercion pin $ CoerceAp [ty]
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
         Con _ conName -> do
