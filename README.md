@@ -25,8 +25,7 @@ It's bidirectional because it can either do type-checking (down) or type-inferen
 
 Boxy types
 ----------
-
-Extention to bidirectional TC. Instead of having to distinct modes (up and down), this system can work with partial type signatures, checking what is known and inferring the rest. This granularity is required when using higher ranked types together with polymorphic data types. Eg:
+Extension to bidirectional TC. Instead of having to distinct modes (up and down), this system can work with partial type signatures, checking what is known and inferring the rest. This granularity is required when using higher ranked types together with polymorphic data types. Eg:
 
     fn :: Maybe (forall a. [a] -> [a]) -> ([Int],[Char])
     fn Nothing = ([],[])
@@ -41,4 +40,4 @@ This is called impredicativity. Both HM and Bidirectional are predicative. Boxy 
 OutsideIn
 ---------
 
-The latest and greatest. Breaks the pattern of the previous extensions by stricty speaking not being backwards compatible with HM. Used by GHC.
+The latest and greatest. Breaks the pattern of the previous extensions by strictly speaking not being backwards compatible with HM. Used by GHC.
