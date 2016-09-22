@@ -7,7 +7,7 @@ import           Language.Haskell.Exts.SrcLoc
 
 import           Language.Haskell.Scope
 import           Language.Haskell.TypeCheck.Monad
-import           Language.Haskell.TypeCheck.Types
+import           Language.Haskell.TypeCheck.Types hiding (Type(..), Typed(..))
 
 -- tiGuardedAlts :: GuardedAlts Origin -> TI TcType
 -- tiGuardedAlts galts =
@@ -15,13 +15,13 @@ import           Language.Haskell.TypeCheck.Types
 --         UnGuardedAlt _ branch -> tiExp branch
 --         _ -> error "tiGuardedAlts"
 
-tiAlt :: TcType -> Alt Origin -> TI TcType
+tiAlt :: TcType s -> Alt Origin -> TI s (TcType s)
 tiAlt scrutTy (Alt _ pat rhs _mbBinds) = do
     patTy <- tiPat pat
     unify scrutTy patTy
     tiRhs rhs
 
-tiLit :: Literal Origin -> TI TcType
+tiLit :: Literal Origin -> TI s (TcType s)
 tiLit lit =
     case lit of
         PrimInt{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "I64")
@@ -33,13 +33,13 @@ tiLit lit =
         Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
         _ -> error $ "tiLit: " ++ show lit
 
-tiQOp :: QOp Origin -> TI TcType
+tiQOp :: QOp Origin -> TI s (TcType s)
 tiQOp op =
     case op of
         QVarOp src var -> tiExp (Var src var)
         QConOp src con -> tiExp (Con src con)
 
-tiStmts :: [Stmt Origin] -> TI TcType
+tiStmts :: [Stmt Origin] -> TI s (TcType s)
 tiStmts [] = error "tiStmts: empty list"
 tiStmts [stmt] =
   case stmt of
@@ -55,7 +55,7 @@ tiStmts (stmt:stmts) =
       exprTy <- tiExp expr
       restTy <- tiStmts stmts
 
-      (_preds :=> bindIOTy, coercion) <- freshInst bindIOSig
+      (TcQual _preds bindIOTy, coercion) <- freshInst bindIOSig
       let ioPatTy = ioType `TcApp` patTy
 
       unify ioPatTy exprTy -- IO patTy == exprTy
@@ -70,7 +70,7 @@ tiStmts (stmt:stmts) =
       exprTy <- tiExp expr
       restTy <- tiStmts stmts
 
-      (_preds :=> thenIOTy, coercion) <- freshInst thenIOSig
+      (TcQual _preds thenIOTy, coercion) <- freshInst thenIOSig
       unify thenIOTy (exprTy `TcFun` (restTy `TcFun` (ioType `TcApp` ty)))
 
       setCoercion pin coercion
@@ -79,8 +79,8 @@ tiStmts (stmt:stmts) =
     _ -> error $ "tiStmts: " ++ show (stmt:stmts)
 
 -- forall a b. IO a -> IO b -> IO b
-thenIOSig :: TcType
-thenIOSig = TcForall [aRef, bRef] ([] :=> (ioA `TcFun` (ioB `TcFun` ioB)))
+thenIOSig :: TcType s
+thenIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` (ioB `TcFun` ioB)))
   where
     aRef = TcVar "a" noSrcSpanInfo
     bRef = TcVar "b" noSrcSpanInfo
@@ -88,18 +88,18 @@ thenIOSig = TcForall [aRef, bRef] ([] :=> (ioA `TcFun` (ioB `TcFun` ioB)))
     ioB = ioType `TcApp` TcRef bRef
 
 -- forall a b. IO a -> (a -> IO b) -> IO b
-bindIOSig :: TcType
-bindIOSig = TcForall [aRef, bRef] ([] :=> (ioA `TcFun` ((TcRef aRef `TcFun` ioB) `TcFun` ioB)))
+bindIOSig :: TcType s
+bindIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` ((TcRef aRef `TcFun` ioB) `TcFun` ioB)))
   where
     aRef = TcVar "a" noSrcSpanInfo
     bRef = TcVar "b" noSrcSpanInfo
     ioA = ioType `TcApp` TcRef aRef
     ioB = ioType `TcApp` TcRef bRef
 
-ioType :: TcType
+ioType :: TcType s
 ioType = TcCon (mkBuiltIn "LHC.Prim" "IO")
 
-tiExp :: Exp Origin -> TI TcType
+tiExp :: Exp Origin -> TI s (TcType s)
 tiExp expr =
     case expr of
 
@@ -113,7 +113,7 @@ tiExp expr =
         Var _ qname -> do
             let Origin (Resolved gname) pin = ann qname
             tySig <- findAssumption gname
-            (_preds :=> ty, coercion) <- freshInst tySig
+            (TcQual _preds ty, coercion) <- freshInst tySig
             isRec <- isRecursive gname
             if isRec
                 then setKnot gname pin
@@ -129,7 +129,7 @@ tiExp expr =
         Con _ conName -> do
             let Origin (Resolved gname) pin = ann conName
             tySig <- findAssumption gname
-            (_preds :=> ty, coercion) <- freshInst tySig
+            (TcQual _preds ty, coercion) <- freshInst tySig
             setCoercion pin coercion
             return ty
         App _ fn a -> do
@@ -167,7 +167,7 @@ tiExp expr =
         Do _ stmts -> tiStmts stmts
         _ -> error $ "tiExp: " ++ show expr
 
-findConAssumption :: QName Origin -> TI TcType
+findConAssumption :: QName Origin -> TI s (TcType s)
 findConAssumption qname = case qname of
     Special _ con -> case con of
         UnitCon{} -> return (TcTuple [])
@@ -181,7 +181,7 @@ findConAssumption qname = case qname of
         let Origin (Resolved gname) _ = ann qname
         findAssumption gname
 
-tiPat :: Pat Origin -> TI TcType
+tiPat :: Pat Origin -> TI s (TcType s)
 tiPat pat =
     case pat of
         PVar _ name -> do
@@ -192,7 +192,7 @@ tiPat pat =
         PApp _ con pats -> do
             ty <- TcMetaVar <$> newTcVar
             conSig <- findConAssumption con
-            (_preds :=> conTy, _coercion) <- freshInst conSig
+            (TcQual _preds conTy, _coercion) <- freshInst conSig
             patTys <- mapM tiPat pats
             unify conTy (foldr TcFun ty patTys)
             return ty
@@ -220,14 +220,14 @@ tiPat pat =
             return ty
         _ -> error $ "tiPat: " ++ show pat
 
-tiRhs :: Rhs Origin -> TI TcType
+tiRhs :: Rhs Origin -> TI s (TcType s)
 tiRhs rhs =
     case rhs of
         UnGuardedRhs _ expr ->
             tiExp expr
         _ -> error "tiRhs"
 
-tiMatch :: Match Origin -> TI TcType
+tiMatch :: Match Origin -> TI s (TcType s)
 tiMatch match =
     case match of
         -- FIXME: typecheck the binds
@@ -245,13 +245,13 @@ tiMatch match =
 --matchPatterns (Match _ _ paths _ _) = length paths
 --matchPatterns InfixMatch{} = 2
 
-tiBinds :: Binds Origin -> TI ()
+tiBinds :: Binds Origin -> TI s ()
 tiBinds binds =
     case binds of
         BDecls _ decls -> tiBindGroup decls
         _ -> error "Language.Haskell.TypeCheck.Infer.tiBinds"
 
-tiDecl :: Decl Origin -> TcType -> TI ()
+tiDecl :: Decl Origin -> TcType s -> TI s ()
 tiDecl decl ty =
     case decl of
         FunBind _ matches -> do
@@ -301,7 +301,7 @@ declHeadType dhead =
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
     tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
 
-tiConDecl :: [TcVar] -> TcType -> ConDecl Origin -> TI (GlobalName, [TcType])
+tiConDecl :: [TcVar] -> TcType s -> ConDecl Origin -> TI s (GlobalName, [TcType s])
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
@@ -316,17 +316,17 @@ tiConDecl tvars dty conDecl =
                 let ty = TcFun dty (typeToTcType fTy)
                 forM_ names $ \name -> do
                     let Origin (Resolved gname) _ = ann name
-                    setAssumption gname (TcForall tvars $ [] :=> ty)
+                    setAssumption gname (TcForall tvars $ TcQual [] ty)
             let Origin (Resolved gname) _ = ann con
             return (gname, conTys)
         _ -> error "tiConDecl"
 
-tiQualConDecl :: [TcVar] -> TcType -> QualConDecl Origin ->
-                 TI (GlobalName, [TcType])
+tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl Origin ->
+                 TI s (GlobalName, [TcType s])
 tiQualConDecl tvars dty (QualConDecl _ _ _ con) =
     tiConDecl tvars dty con
 
-tiClassDecl :: Decl Origin -> TI ()
+tiClassDecl :: Decl Origin -> TI s ()
 tiClassDecl decl =
     case decl of
         -- ClassDecl _ _ctx (DHead _ className [tyBind]) _deps (Just decls) ->
@@ -347,7 +347,7 @@ tiClassDecl decl =
     --     let scheme = TcForall [tcVar] ([IsIn gname (TcRef tcVar)] :=> tcType)
     --     setAssumption src scheme
 
-tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl Origin -> TI ()
+tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl Origin -> TI s ()
 tiPrepareClassDecl className [tyVar] decl =
     case decl of
       ClsDecl _ (TypeSig _ names ty) -> do
@@ -355,12 +355,12 @@ tiPrepareClassDecl className [tyVar] decl =
           let Origin (Resolved gname) _ = ann name
               ty' = typeToTcType ty
           setAssumption gname
-            (TcForall (freeTcVariables ty') ([IsIn className (TcRef tyVar)] :=> ty'))
+            (TcForall (freeTcVariables ty') ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
       _ -> error $ "tiPrepareClassDecl: " ++ show decl
 tiPrepareClassDecl _ _ decl =
     error $ "tiPrepareClassDecl: " ++ show decl
 
-tiPrepareDecl :: Decl Origin -> TI ()
+tiPrepareDecl :: Decl Origin -> TI s ()
 tiPrepareDecl decl =
     case decl of
         DataDecl _ _ _ dhead cons _ -> do
@@ -369,7 +369,7 @@ tiPrepareDecl decl =
             forM_ cons $ \qualCon -> do
                 (con, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
                 let ty = foldr TcFun dataTy fieldTys
-                setAssumption con (TcForall tcvars $ [] :=> ty)
+                setAssumption con (TcForall tcvars $ TcQual [] ty)
         FunBind{} -> return ()
         PatBind{} -> return ()
         TypeDecl{} -> return ()
@@ -389,18 +389,18 @@ tiPrepareDecl decl =
             tiPrepareClassDecl className tcvars clsDecl
         _ -> error $ "tiPrepareDecl: " ++ show decl
 
-tiExpl :: (Decl Origin, GlobalName) -> TI ()
+tiExpl :: (Decl Origin, GlobalName) -> TI s ()
 tiExpl (decl, binder) = do
     free <- getFreeMetaVariables
     ty <- TcMetaVar <$> newTcVar
     tiDecl decl ty
     tySig <- findAssumption binder
-    (_preds :=> expected, _coercion) <- freshInst tySig
+    (TcQual _preds expected, _coercion) <- freshInst tySig
     unify ty expected
     (_, coercion) <- generalize free expected
     setCoercion (globalNameSrcSpanInfo binder) coercion
 
-tiDecls :: [(Decl Origin, GlobalName)] -> TI ()
+tiDecls :: [(Decl Origin, GlobalName)] -> TI s ()
 tiDecls decls = withRecursive thisBindGroup $ do
     free <- getFreeMetaVariables
     -- liftIO $ print $ map snd decls
@@ -412,8 +412,8 @@ tiDecls decls = withRecursive thisBindGroup $ do
         tiDecl decl ty
     forM_ decls $ \(_decl, binder) -> do
         ty <- findAssumption binder
-        rTy <- zonk ty
-        setAssumption binder rTy
+        -- rTy <- zonk ty
+        setAssumption binder ty
     forM_ decls $ \(_decl, binder) -> do
         ty <- findAssumption binder
         -- rTy <- zonk ty
@@ -447,7 +447,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
 -- the environment. Then type check the implicit declarations in their
 -- strongly connected groups. Lastly, verify the signature of explicitly
 -- typed declarations (this includes instance methods).
-tiBindGroup :: [Decl Origin] -> TI ()
+tiBindGroup :: [Decl Origin] -> TI s ()
 tiBindGroup decls = do
     -- liftIO $ putStrLn $ "Explicit: " ++ show explicitlyTyped
     mapM_ tiPrepareDecl decls
@@ -553,7 +553,7 @@ patBinders pat =
             in [gname]
         _ -> error $ "patBinders: " ++ show pat
 
-tiModule :: Module Origin -> TI ()
+tiModule :: Module Origin -> TI s ()
 tiModule m =
     case m of
         Module _ _dhead _pragma _imports decls ->
