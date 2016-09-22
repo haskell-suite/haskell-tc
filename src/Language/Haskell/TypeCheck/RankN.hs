@@ -1,7 +1,8 @@
 module Language.Haskell.TypeCheck.RankN where
 
 import Language.Haskell.TypeCheck.Types
-import Language.Haskell.TypeCheck.Monad hiding (unify,getMetaTyVars)
+import Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
+import Language.Haskell.TypeCheck.Misc
 
 import Control.Monad
 import Data.List
@@ -34,15 +35,12 @@ skolemize ty =
 quantify :: [TcMetaVar s] -> Rho s -> TI s (Sigma s, Coercion s)
 quantify = undefined
 
-unify :: Tau s -> Tau s -> TI s ()
-unify = undefined
-
 unifyFun :: Tau s -> TI s (Sigma s, Rho s)
-unifyFun (Fun a b) = return (a,b)
+unifyFun (TcFun a b) = return (a,b)
 unifyFun ty = do
   a <- TcMetaVar <$> newTcVar
   b <- TcMetaVar <$> newTcVar
-  unify ty (Fun a b)
+  unify ty (TcFun a b)
   return (a, b)
 
 tcRho :: Term -> Expected s (Rho s) -> TI s ()
@@ -150,12 +148,3 @@ instSigma ty (Infer r) = do
   liftST $ writeSTRef r ty'
   return coerce
 instSigma ty (Check rho) = subsCheckRho ty rho
-
-getFreeTyVars :: [TcType s] -> TI s [TcVar]
-getFreeTyVars = undefined
-
-getEnvTypes :: TI s [Sigma s]
-getEnvTypes = undefined
-
-getMetaTyVars :: [TcType s] -> TI s [TcMetaVar s]
-getMetaTyVars = undefined
