@@ -10,7 +10,9 @@ import Data.STRef
 type Term = ()
 
 instantiate :: Sigma s -> TI s (Rho s, Coercion s)
-instantiate = undefined
+instantiate (TcForall tvs (TcQual [] ty)) = do
+  undefined
+instantiate tau = return (tau, id)
 
 {-
 skolemize sigma = /\a.rho + f::/\a.rho -> sigma
@@ -29,7 +31,7 @@ skolemize :: Sigma s -> TI s ([TcVar], Rho s, Coercion s)
 skolemize ty =
   return ([], ty, id)
 
-quantify :: [TcMetaVar s] -> Rho s -> TI s (Sigma s)
+quantify :: [TcMetaVar s] -> Rho s -> TI s (Sigma s, Coercion s)
 quantify = undefined
 
 unify :: Tau s -> Tau s -> TI s ()
@@ -57,7 +59,8 @@ inferSigma term = do
   env_tvs <- getMetaTyVars env_tys
   res_tvs <- getMetaTyVars [exp_ty]
   let forall_tvs = res_tvs \\ env_tvs
-  quantify forall_tvs exp_ty
+  (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
+  return sigma
 
 -- term: (k :: forall a b. a -> b)
 -- sigma: (forall a. a -> a)

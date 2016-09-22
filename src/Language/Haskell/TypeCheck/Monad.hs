@@ -11,7 +11,7 @@ import           Data.Map                               (Map)
 import qualified Data.Map                               as Map
 import           Data.Set                               (Set)
 import qualified Data.Set                               as Set
-import           Language.Haskell.Exts.Annotated.Syntax (Boxed (..), Name,
+import           Language.Haskell.Exts.Syntax (Boxed (..), Name,
                                                          QName (..),
                                                          SpecialCon (..),
                                                          Type (..), ann)
