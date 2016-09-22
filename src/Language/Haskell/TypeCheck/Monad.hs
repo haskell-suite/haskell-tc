@@ -154,7 +154,7 @@ getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
 --     return (map instPred preds `TcQual` instantiate t0, CoerceAp $ map TcMetaVar refs)
 -- freshInst ty = pure (TcQual [] ty, CoerceId )
 
-unify :: TcType s -> TcType s -> TI s ()
+unify :: Tau s -> Tau s -> TI s ()
 unify (TcList a) (TcList b) =
     unify a b
 unify (TcTuple as) (TcTuple bs) | length as == length bs =

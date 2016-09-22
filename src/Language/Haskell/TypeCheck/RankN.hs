@@ -38,7 +38,12 @@ unify :: Tau s -> Tau s -> TI s ()
 unify = undefined
 
 unifyFun :: Tau s -> TI s (Sigma s, Rho s)
-unifyFun = undefined
+unifyFun (Fun a b) = return (a,b)
+unifyFun ty = do
+  a <- TcMetaVar <$> newTcVar
+  b <- TcMetaVar <$> newTcVar
+  unify ty (Fun a b)
+  return (a, b)
 
 tcRho :: Term -> Expected s (Rho s) -> TI s ()
 tcRho = undefined
@@ -62,19 +67,6 @@ inferSigma term = do
   (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
   return sigma
 
--- term: (k :: forall a b. a -> b)
--- sigma: (forall a. a -> a)
--- skol_tvs: a
--- rho: a -> a
---
--- instSigma k rho
-
--- term: (k :: (forall a. a -> a) -> Int)
--- sigma: ((forall a b. a -> b) -> Int)
--- skol_tvs: []
--- rho: ((forall a b. a -> b) -> Int)
---
--- instSigma ((forall a. a -> a) -> Int) ((forall a b. a -> b) -> Int)
 checkSigma :: Term -> Sigma s -> TI s ()
 checkSigma term sigma = do
   (skol_tvs, rho, p) <- skolemize sigma
