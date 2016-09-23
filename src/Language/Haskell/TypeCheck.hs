@@ -3,9 +3,11 @@ module Language.Haskell.TypeCheck where
 import Language.Haskell.Scope
 import Language.Haskell.TypeCheck.Types
 import Language.Haskell.TypeCheck.Monad
-import Language.Haskell.TypeCheck.Infer
+import Language.Haskell.TypeCheck.Misc
+import Language.Haskell.TypeCheck.SyntaxDirected
+import Language.Haskell.TypeCheck.Annotate
 
-import Language.Haskell.Exts.Annotated
+import Language.Haskell.Exts
 
 import Control.Monad.ST
 import Control.Monad.State
@@ -23,18 +25,8 @@ typecheck env ast = runST (evalStateT (unTI f) st)
     st = emptyTcState
           { tcStateValues = Map.map toTcType (tcEnvValues env) }
     f = do
-        tiModule ast
-        vars <- gets tcStateValues
-        vars' <- forM (Map.assocs vars) $ \(src, ty) -> do
-            ty' <- zonk ty
-            return (src, ty')
-        coercions <- gets tcStateCoercions
-        coercions' <- forM (Map.assocs coercions) $ \(src, coerce) -> do
-            coerce' <- zonkCoercion coerce
-            return (src, coerce')
-        -- tyApps <- sequence
-        --   [
-        --   | CoerceAp tys ]
-        -- modify $ \st -> st{tcStateValues = Map.fromList vars'
-        --                   ,tcStateCoercions = Map.fromList coercions'}
-        return $ (undefined, TcEnv Map.empty)
+      tiModule ast
+      tys <- getZonkedTypes
+      proofs <- getZonkedProofs
+      let annotated = runReader (annotate ast) (AnnEnv tys proofs)
+      return (annotated, TcEnv tys)

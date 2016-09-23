@@ -1,9 +1,14 @@
 module Language.Haskell.TypeCheck.Misc where
 
-import Language.Haskell.TypeCheck.Types
-import Language.Haskell.TypeCheck.Monad hiding (unify,getMetaTyVars)
+import           Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars, unify)
+import           Language.Haskell.TypeCheck.Types
+import           Language.Haskell.Scope
+import           Language.Haskell.Exts.SrcLoc
 
-import Data.STRef
+import           Control.Monad.State
+import           Data.Map                         (Map)
+import qualified Data.Map                         as Map
+import           Data.STRef
 
 -- property:    \ty -> getFreeTyVars ty == []
 -- property:    \tv -> do (tvs, rho, coercion) <- skolemize ty
@@ -31,8 +36,31 @@ getFreeTyVars tys = goMany [] tys []
         TcTuple tys -> goMany bound tys acc
         TcList elt -> go bound elt acc
 
+explicitTcForall :: TcType s -> TI s (TcType s)
+explicitTcForall ty = do
+  tvs <- getFreeTyVars [ty]
+  return $ TcForall tvs (TcQual [] ty)
+
+
 getEnvTypes :: TI s [Sigma s]
-getEnvTypes = undefined
+getEnvTypes = do
+  m <- gets tcStateValues
+  return (Map.elems m)
+
+getZonkedTypes :: TI s (Map GlobalName Type)
+getZonkedTypes = do
+  tys <- Map.assocs <$> gets tcStateValues
+  Map.fromList <$> forM tys (\(name, ty) -> do
+    ty' <- zonkType ty
+    return (name, ty'))
+
+getZonkedProofs :: TI s (Map SrcSpanInfo Proof)
+getZonkedProofs = do
+  proofs <- Map.assocs <$> gets tcStateProofs
+  Map.fromList <$> forM proofs (\(name, p) -> do
+    p' <- zonkProof p
+    return (name, p'))
+
 
 -- property: \ty -> do (tvs, rho, _) <- skolemize ty
 --                     (ty', proof) <- instantiate (TcForall tvs (TcQual [] rho))
@@ -60,3 +88,30 @@ getMetaTyVars tys = goMany tys []
               | otherwise      -> pure (var:acc)
         TcTuple tys -> goMany tys acc
         TcList elt -> go elt acc
+
+getFreeMetaVariables :: TI s [TcMetaVar s]
+getFreeMetaVariables = getMetaTyVars =<< getEnvTypes
+
+substituteTyVars :: [(TcVar, TcMetaVar s)] -> TcType s -> TcType s
+substituteTyVars vars = go
+  where
+    go (TcForall tvs (TcQual preds ty)) = TcForall tvs (TcQual preds (go ty))
+    go (TcFun a b)          = TcFun (go a) (go b)
+    go (TcApp a b)          = TcApp (go a) (go b)
+    go (TcRef var)          =
+      case lookup var vars of
+        Nothing -> TcRef var
+        Just meta -> TcMetaVar meta
+    go (TcCon con)          = TcCon con
+    go (TcMetaVar meta)     = TcMetaVar meta
+    go (TcUnboxedTuple tys) = TcUnboxedTuple (map go tys)
+    go (TcTuple tys)        = TcTuple (map go tys)
+    go (TcList ty)          = TcList (go ty)
+    go TcUndefined          = TcUndefined
+
+writeMetaVar :: TcMetaVar s -> TcType s -> TI s ()
+writeMetaVar (TcMetaRef _name var) ty = liftST $ do
+  mbVal <- readSTRef var
+  case mbVal of
+    Nothing -> writeSTRef var (Just ty)
+    Just{}  -> error "writeMetaVar: Variable already set."

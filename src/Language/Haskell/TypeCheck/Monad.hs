@@ -21,15 +21,21 @@ import           Language.Haskell.Scope
 import           Language.Haskell.TypeCheck.Types hiding (Type(..), Typed(..))
 import qualified Language.Haskell.TypeCheck.Types as T
 
+import qualified Language.Haskell.TypeCheck.Pretty as P
+import Debug.Trace
+
 data TcEnv = TcEnv
   { tcEnvValues :: Map GlobalName T.Type
   }
+
+emptyTcEnv :: TcEnv
+emptyTcEnv = TcEnv { tcEnvValues = Map.empty }
 
 data TcState s = TcState
     { -- Values such as 'length', 'Nothing', 'Just', etc
       tcStateValues    :: Map GlobalName (TcType s)
     , tcStateUnique    :: Int
-    , tcStateCoercions :: Map SrcSpanInfo (Coercion s)
+    , tcStateProofs    :: Map SrcSpanInfo (TcProof s)
     , tcStateRecursive :: Set GlobalName
     -- ^ Set of recursive bindings in the current group.
     , tcStateKnots     :: [(GlobalName, SrcSpanInfo)]
@@ -50,7 +56,7 @@ emptyTcState :: TcState s
 emptyTcState = TcState
     { tcStateValues   = Map.empty
     , tcStateUnique    = 0
-    , tcStateCoercions = Map.empty
+    , tcStateProofs = Map.empty
     , tcStateRecursive = Set.empty
     , tcStateKnots = [] }
 
@@ -97,28 +103,31 @@ newUnique = do
     modify $ \env -> env{ tcStateUnique = u + 1 }
     return u
 
-getFreeMetaVariables :: TI s [TcMetaVar s]
-getFreeMetaVariables = do
-    m <- gets tcStateValues
-    nub . concat <$> mapM metaVariables (Map.elems m)
+-- getFreeMetaVariables :: TI s [TcMetaVar s]
+-- getFreeMetaVariables = do
+--     m <- gets tcStateValues
+--     nub . concat <$> mapM metaVariables (Map.elems m)
 
 setAssumption :: GlobalName -> TcType s -> TI s ()
-setAssumption ident tySig = modify $ \env ->
+setAssumption ident tySig = -- trace (show (P.pretty ident) ++ " :: " ++ show (P.pretty tySig)) $
+  modify $ \env ->
     env{ tcStateValues = Map.insert ident tySig (tcStateValues env) }
 
-findAssumption :: GlobalName -> TI s (TcType s)
+findAssumption :: GlobalName -> TI s (Sigma s)
 findAssumption ident = do
     m <- gets tcStateValues
     case Map.lookup ident m of
         Nothing -> error $ "Language.Haskell.TypeCheck.findAssumption: Missing ident: " ++ show ident
         Just scheme -> return scheme
 
-setCoercion :: SrcSpanInfo -> Coercion s -> TI s ()
-setCoercion src coercion = modify $ \env ->
-    env{ tcStateCoercions = Map.insert src coercion (tcStateCoercions env) }
+setProof :: SrcSpanInfo -> TcCoercion s -> TcType s -> TI s ()
+setProof span coercion src = modify $ \env ->
+    env{ tcStateProofs = Map.insert span proof (tcStateProofs env) }
+  where
+    proof = coercion (TcProofSrc src)
 
-getCoercion :: SrcSpanInfo -> TI s (Coercion s)
-getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
+-- getCoercion :: SrcSpanInfo -> TI s (TcCoercion s)
+-- getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
 
 -- setGlobal :: QualifiedName -> TcType -> TI ()
 -- setGlobal gname scheme = modify $ \env ->
@@ -154,80 +163,41 @@ getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
 --     return (map instPred preds `TcQual` instantiate t0, CoerceAp $ map TcMetaVar refs)
 -- freshInst ty = pure (TcQual [] ty, CoerceId )
 
-unify :: Tau s -> Tau s -> TI s ()
-unify (TcList a) (TcList b) =
-    unify a b
-unify (TcTuple as) (TcTuple bs) | length as == length bs =
-    zipWithM_ unify as bs
-unify (TcApp la lb) (TcApp ra rb) = do
-    unify la ra
-    unify lb rb
-unify (TcFun la lb) (TcFun ra rb) = do
-    unify la ra
-    unify lb rb
-unify (TcCon left) (TcCon right)
-  | left == right = return ()
-  | otherwise     = error $ "unify con: " ++ show (left,right)
-unify (TcUnboxedTuple as) (TcUnboxedTuple bs)
-    | length as == length bs = zipWithM_ unify as bs
-unify (TcMetaVar ref) a = unifyMetaVar ref a
-unify a (TcMetaVar ref) = unifyMetaVar ref a
-unify a b               = error $ "unify: " ++ show (a,b)
 
-unifyMetaVar :: TcMetaVar s -> TcType s -> TI s ()
-unifyMetaVar a (TcMetaVar b) | a == b = return ()
-unifyMetaVar a@(TcMetaRef _ident ref) rightTy = do
-    mbSubst <- liftST $ readSTRef ref
-    case mbSubst of
-        Just leftTy -> unify leftTy rightTy
-        Nothing -> unifyUnboundVar a rightTy
-
-unifyUnboundVar :: TcMetaVar s -> TcType s -> TI s ()
-unifyUnboundVar tv@(TcMetaRef _ident ref) (TcMetaVar b@(TcMetaRef _ refB)) = do
-    mbSubst <- liftST $ readSTRef refB
-    case mbSubst of
-        Just ty -> unify (TcMetaVar tv) ty
-        Nothing -> liftST $ writeSTRef ref (Just $ TcMetaVar b)
-unifyUnboundVar tv@(TcMetaRef _ident ref) b = do
-    tvs <- getMetaTyVars b
-    if tv `elem` tvs
-        then error "occurs check failed"
-        else liftST $ writeSTRef ref (Just b)
-
-getMetaTyVars :: TcType s -> TI s [TcMetaVar s]
-getMetaTyVars = metaVariables
+-- getMetaTyVars :: TcType s -> TI s [TcMetaVar s]
+-- getMetaTyVars = metaVariables
 
 
-zonk :: TcType s -> TI s T.Type
-zonk ty =
+zonkType :: TcType s -> TI s T.Type
+zonkType ty =
   case ty of
     TcForall tyvars (TcQual predicates tty) ->
-      T.TyForall tyvars <$> ((:=>) <$> mapM zonkPredicate predicates <*> zonk tty)
-    TcFun a b -> T.TyFun <$> zonk a <*> zonk b
-    TcApp a b -> T.TyApp <$> zonk a <*> zonk b
+      T.TyForall tyvars <$> ((:=>) <$> mapM zonkPredicate predicates <*> zonkType tty)
+    TcFun a b -> T.TyFun <$> zonkType a <*> zonkType b
+    TcApp a b -> T.TyApp <$> zonkType a <*> zonkType b
     TcRef var -> pure $ T.TyRef var
     TcCon con -> pure $ T.TyCon con
     TcMetaVar (TcMetaRef name meta) -> do
         mbTy <- liftST (readSTRef meta)
         case mbTy of
             Nothing -> error $ "Zonking unset meta variable: " ++ name
-            Just sub -> zonk sub
-                -- sub' <- zonk sub
-                -- liftST $ writeSTRef meta (Just sub')
-                -- return sub'
-    TcUnboxedTuple tys -> T.TyUnboxedTuple <$> mapM zonk tys
-    TcTuple tys -> T.TyTuple <$> mapM zonk tys
-    TcList elt -> T.TyList <$> zonk elt
+            Just sub -> zonkType sub
+    TcUnboxedTuple tys -> T.TyUnboxedTuple <$> mapM zonkType tys
+    TcTuple tys -> T.TyTuple <$> mapM zonkType tys
+    TcList elt -> T.TyList <$> zonkType elt
 
 zonkPredicate :: TcPred s -> TI s Predicate
-zonkPredicate (TcIsIn className ty) = IsIn className <$> zonk ty
+zonkPredicate (TcIsIn className ty) = IsIn className <$> zonkType ty
 
--- zonkCoercion :: Coercion s -> TI s (Coercion s)
--- zonkCoercion coerce =
---     case coerce of
---         CoerceId       -> pure CoerceId
---         CoerceAbs vars -> pure $ CoerceAbs vars
---         -- CoerceAp tys   -> CoerceAp <$> mapM zonk tys
+zonkProof :: TcProof s -> TI s Proof
+zonkProof proof =
+  case proof of
+    TcProofAbs tvs p  -> ProofAbs tvs <$> zonkProof p
+    TcProofAp p tys   -> ProofAp <$> zonkProof p <*> mapM zonkType tys
+    TcProofLam n ty p -> ProofLam n <$> zonkType ty <*> zonkProof p
+    TcProofSrc ty     -> ProofSrc <$> zonkType ty
+    TcProofPAp p1 p2  -> ProofPAp <$> zonkProof p1 <*> zonkProof p2
+    TcProofVar n      -> pure $ ProofVar n
 
 tcVarFromName :: Name Origin -> TcVar
 tcVarFromName name =
@@ -261,42 +231,39 @@ typeToTcType ty =
 --tcTypeToScheme :: TcType -> TcType
 --tcTypeToScheme ty = Scheme (freeTcVariables ty) ([] :=> ty)
 
-explicitTcForall :: TcType s -> TcType s
-explicitTcForall ty = TcForall (freeTcVariables ty) (TcQual [] ty)
+-- freeTcVariables :: TcType s -> [TcVar]
+-- freeTcVariables = nub . worker []
+--   where
+--     worker ignore ty =
+--         case ty of
+--             TcForall{} -> error "freeTcVariables"
+--             TcFun a b -> worker ignore a ++ worker ignore b
+--             TcApp a b -> worker ignore a ++ worker ignore b
+--             TcRef v | v `elem` ignore -> []
+--                     | otherwise       -> [v]
+--             TcCon{} -> []
+--             TcUnboxedTuple tys -> concatMap (worker ignore) tys
+--             TcMetaVar{} -> []
+--             TcTuple tys -> concatMap (worker ignore) tys
+--             TcList elt -> worker ignore elt
 
-freeTcVariables :: TcType s -> [TcVar]
-freeTcVariables = nub . worker []
-  where
-    worker ignore ty =
-        case ty of
-            TcForall{} -> error "freeTcVariables"
-            TcFun a b -> worker ignore a ++ worker ignore b
-            TcApp a b -> worker ignore a ++ worker ignore b
-            TcRef v | v `elem` ignore -> []
-                    | otherwise       -> [v]
-            TcCon{} -> []
-            TcUnboxedTuple tys -> concatMap (worker ignore) tys
-            TcMetaVar{} -> []
-            TcTuple tys -> concatMap (worker ignore) tys
-            TcList elt -> worker ignore elt
-
-metaVariables :: TcType s -> TI s [TcMetaVar s]
-metaVariables ty =
-    case ty of
-        -- XXX: There shouldn't be any meta variables inside a forall scope.
-        TcForall _ (TcQual _ ty') -> metaVariables ty'
-        TcFun a b -> (++) <$> metaVariables a <*> metaVariables b
-        TcApp a b -> (++) <$> metaVariables a <*> metaVariables b
-        TcRef{} -> pure []
-        TcCon{} -> pure []
-        TcMetaVar var@(TcMetaRef _ ref) -> do
-          mbTy <- liftST $ readSTRef ref
-          case mbTy of
-            Just ty' -> metaVariables ty'
-            Nothing  -> return [var]
-        TcUnboxedTuple tys -> concat <$> mapM metaVariables tys
-        TcTuple tys -> concat <$> mapM metaVariables tys
-        TcList elt -> metaVariables elt
+-- metaVariables :: TcType s -> TI s [TcMetaVar s]
+-- metaVariables ty =
+--     case ty of
+--         -- XXX: There shouldn't be any meta variables inside a forall scope.
+--         TcForall _ (TcQual _ ty') -> metaVariables ty'
+--         TcFun a b -> (++) <$> metaVariables a <*> metaVariables b
+--         TcApp a b -> (++) <$> metaVariables a <*> metaVariables b
+--         TcRef{} -> pure []
+--         TcCon{} -> pure []
+--         TcMetaVar var@(TcMetaRef _ ref) -> do
+--           mbTy <- liftST $ readSTRef ref
+--           case mbTy of
+--             Just ty' -> metaVariables ty'
+--             Nothing  -> return [var]
+--         TcUnboxedTuple tys -> concat <$> mapM metaVariables tys
+--         TcTuple tys -> concat <$> mapM metaVariables tys
+--         TcList elt -> metaVariables elt
 
 -- Replace free meta vars with tcvars. Compute the smallest context.
 --

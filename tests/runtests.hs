@@ -1,30 +1,35 @@
 module Main (main) where
 
-import           Control.Monad                   (fmap, mplus, when)
-import           Data.Foldable                   (foldMap)
-import           Data.List                       (nub, partition)
-import           Data.Maybe                      (fromMaybe,maybeToList)
-import           Language.Haskell.Exts.Annotated
-import           Language.Haskell.Scope
+import           Control.Monad                     (fmap, mplus, when)
+import           Data.Foldable                     (foldMap)
+import           Data.Foldable                     (toList)
+import           Data.List                         (nub, partition)
+import qualified Data.Map                          as Map
+import           Data.Maybe                        (fromMaybe, maybeToList)
+import           Data.Maybe                        (isJust)
+import           Language.Haskell.Exts
+import           Language.Haskell.Scope            (GlobalName (..),
+                                                    Origin (..),
+                                                    QualifiedName (..),
+                                                    emptyResolveEnv, resolve)
+import qualified Language.Haskell.Scope            as Scope
 import           Language.Haskell.TypeCheck
 import           Language.Haskell.TypeCheck.Monad
-import           Language.Haskell.TypeCheck.Infer
+import qualified Language.Haskell.TypeCheck.Pretty as P
 import           Language.Haskell.TypeCheck.Types
-import           System.Directory                (doesFileExist)
-import           System.Environment              (getArgs)
-import           System.Exit                     (ExitCode (..), exitWith)
-import           System.FilePath                 (replaceExtension, (<.>))
-import           System.IO                       (hPutStrLn, stderr)
-import           Test.Framework                  (defaultMain, testGroup)
+import           System.Directory                  (doesFileExist)
+import           System.Environment                (getArgs)
+import           System.Exit                       (ExitCode (..), exitWith)
+import           System.FilePath                   (replaceExtension, (<.>))
+import           System.IO                         (hPutStrLn, stderr)
+import           Test.Framework                    (defaultMain, testGroup)
 import           Test.Framework.Providers.HUnit
 import           Test.HUnit
-import           Text.PrettyPrint.ANSI.Leijen    (Doc, indent, text, underline,
-                                                  vsep, (<>), (<+>))
-import qualified Language.Haskell.TypeCheck.Pretty as P
-import           Text.Printf                     (printf)
-import qualified Data.Map as Map
-import qualified Text.PrettyPrint.ANSI.Leijen as Doc
-import Data.Maybe (isJust)
+import           Text.PrettyPrint.ANSI.Leijen      (Doc, indent, text,
+                                                    underline, vsep, (<+>),
+                                                    (<>))
+import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
+import           Text.Printf                       (printf)
 
 main :: IO ()
 main = do
@@ -68,30 +73,37 @@ getTcInfo file = do
     ParseOk thisModule -> do
       let (env, errs, scoped) = resolve emptyResolveEnv thisModule
           allResolved = nub $ foldMap getResolved scoped
-          getResolved (Origin (Resolved gname) loc) = [(loc, gname)]
+          getResolved (Origin (Scope.Resolved gname) loc) = [(loc, gname)]
           getResolved _ = []
           isDefinition (usageLoc, GlobalName definitionLoc _)= usageLoc == definitionLoc
           (_definitions, usage) = partition isDefinition allResolved
           definitions = nub [ gname | (usageLoc, gname) <- allResolved ]
           defIndex = zip definitions [1..]
-          isInterestingCoercion CoerceAp{} = True
-          isInterestingCoercion _ = False
 
-      tcEnv <- runTI emptyTcEnv (tiModule scoped)
+      let (typed, env') = typecheck emptyTcEnv scoped
+          allTyped = toList typed
       return $ Right $ show $ Doc.vsep $
-        [ ppQualName qname <+> text "::" <+> tyMsg <> (case mbCoercion of
-            Just coercion -> Doc.char ',' <+> P.pretty coercion
-            Nothing -> Doc.empty) Doc.<$$>
-          ppLocation 2 fileContent usageLoc
-
-        | (usageLoc,gname@(GlobalName defLoc qname))  <- allResolved
-        , ty <- maybeToList (Map.lookup gname (tcEnvValues tcEnv))
-        , let tyMsg = P.pretty ty
-              isDefinition = usageLoc == defLoc
-              mbCoercion = Map.lookup usageLoc
-                                (tcEnvCoercions tcEnv)
-        , isDefinition || maybe False isInterestingCoercion mbCoercion ]
-        ++ [Doc.empty]
+        [ ppQualName qname <+> text "::" <+> tyMsg Doc.<$$>
+          ppLocation 2 fileContent srcspan
+        | Binding gname ty proof srcspan <- allTyped
+        , let GlobalName defLoc qname = gname
+              tyMsg = P.pretty ty
+        ]++ [Doc.empty]
+      -- tcEnv <- runTI emptyTcEnv (tiModule scoped)
+      -- return $ Right $ show $ Doc.vsep $
+      --   [ ppQualName qname <+> text "::" <+> tyMsg <> (case mbCoercion of
+      --       Just coercion -> Doc.char ',' <+> P.pretty coercion
+      --       Nothing -> Doc.empty) Doc.<$$>
+      --     ppLocation 2 fileContent usageLoc
+      --
+      --   | (usageLoc,gname@(GlobalName defLoc qname))  <- allResolved
+      --   , ty <- maybeToList (Map.lookup gname (tcEnvValues tcEnv))
+      --   , let tyMsg = P.pretty ty
+      --         isDefinition = usageLoc == defLoc
+      --         mbCoercion = Map.lookup usageLoc
+      --                           (tcEnvCoercions tcEnv)
+      --   , isDefinition || maybe False isInterestingCoercion mbCoercion ]
+      --   ++ [Doc.empty]
 
 ppGName :: SrcSpanInfo -> GlobalName -> Doc
 ppGName srcSpanInfo (GlobalName _defLoc (QualifiedName m ident))

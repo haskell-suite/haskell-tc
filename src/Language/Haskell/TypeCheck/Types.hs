@@ -87,42 +87,25 @@ toTcPred (IsIn className ty) = TcIsIn className (toTcType ty)
 --     | CoerceFunAbsAp [TcVar] (Coercion s)
 --     deriving (Show , Eq)
 
-type Coercion s = Proof s -> Proof s
-data Proof s
-  = ProofAbs [TcVar] (Proof s)
-  | ProofAb (Proof s) [TcType s]
-  | ProofLam Int (TcType s) (Proof s)
-  | ProofSrc (TcType s)
-  | ProofAp (Proof s) (Proof s)
+type TcCoercion s = TcProof s -> TcProof s
+data TcProof s
+  = TcProofAbs [TcVar] (TcProof s)
+  | TcProofAp (TcProof s) [TcType s]
+  | TcProofLam Int (TcType s) (TcProof s)
+  | TcProofSrc (TcType s)
+  | TcProofPAp (TcProof s) (TcProof s)
+  | TcProofVar Int
+
+type Coercion = Proof -> Proof
+data Proof
+  = ProofAbs [TcVar] Proof
+  | ProofAp Proof [Type]
+  | ProofLam Int Type Proof
+  | ProofSrc Type
+  | ProofPAp Proof Proof
   | ProofVar Int
 
--- PRPOLY:    \x. /\a. f (x @a)
---            \x -> Abs [a] (f (Ap [a] x))
--- PRFUN:     \x y. f (/\a. x @a y)
---            \x -> Lam y (f (Abs [a] (x `Ap` [a] `ApE` y)))
--- PRMONO:    \x. x                     Id
--- DEEP-SKOL: \x. f1 (/\a. f2 x)
--- SPEC:      \x. f (x @t)              Compose
--- FUN:       \x y. f2 (x (f1 y))
--- GEN1:      @a
--- GEN2:      f . @a
--- \f -> f
--- \x -> co_res (/\a. co_arg x)
--- \f x -> co_res (f (co_arg x))
--- AbsAp a f => \x -> /\a. f (x @a)
--- FunAbsAp a f => \x y -> f (/\a. x @a y)
 
--- instance P.Pretty (Coercion s) where
---     prettyPrec _ c = Doc.text "not implemented"
-        -- case c of
-        --     CoerceId  ->
-        --         Doc.text "id"
-        --     CoerceAbs vars ->
-        --         Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<> Doc.dot
-        --         -- Doc.text "abs" Doc.<+> P.pretty vars
-        --     CoerceAp metas ->
-        --         Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) metas)
-                -- Doc.text "ap" Doc.<+> P.pretty metas
 
 -- for arguments to the left of ->
 arrowPrecedence :: Int
@@ -133,34 +116,34 @@ appPrecedence :: Int
 appPrecedence = 2
 
 instance P.Pretty (TcType s) where
-    prettyPrec p ty =
-        case ty of
-            TcForall [] (TcQual [] t) ->
-                P.prettyPrec p t
-            TcForall vars qual ->
-                Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
-                Doc.dot Doc.<+> P.pretty qual
-            TcFun a b -> P.parensIf (p > 0) $
-                P.prettyPrec arrowPrecedence a Doc.<+>
-                Doc.text "→ " Doc.<+> P.pretty b
-            TcApp a b -> P.parensIf (p > arrowPrecedence) $
-                P.pretty a Doc.<+> P.prettyPrec appPrecedence b
-            TcCon (QualifiedName "" ident) ->
-                Doc.text ident
-            TcCon (QualifiedName m ident) ->
-                Doc.text (m ++ "." ++ ident)
-            TcRef var -> P.pretty var
-            TcMetaVar meta ->
-                P.prettyPrec p meta
-            TcUnboxedTuple tys ->
-                Doc.text "(#" Doc.<+>
-                (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
-                Doc.text "#)"
-            TcTuple tys -> Doc.tupled (map P.pretty tys)
-            TcList ty ->
-                Doc.brackets (P.pretty ty)
-            TcUndefined ->
-                Doc.red (Doc.text "undefined")
+  prettyPrec p ty =
+    case ty of
+      TcForall [] (TcQual [] t) ->
+        P.prettyPrec p t
+      TcForall vars qual ->
+        Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
+        Doc.dot Doc.<+> P.pretty qual
+      TcFun a b -> P.parensIf (p > 0) $
+        P.prettyPrec arrowPrecedence a Doc.<+>
+        Doc.text "→ " Doc.<+> P.pretty b
+      TcApp a b -> P.parensIf (p > arrowPrecedence) $
+        P.pretty a Doc.<+> P.prettyPrec appPrecedence b
+      TcCon (QualifiedName "" ident) ->
+        Doc.text ident
+      TcCon (QualifiedName m ident) ->
+        Doc.text (m ++ "." ++ ident)
+      TcRef var -> P.pretty var
+      TcMetaVar meta ->
+        P.prettyPrec p meta
+      TcUnboxedTuple tys ->
+        Doc.text "(#" Doc.<+>
+        (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
+        Doc.text "#)"
+      TcTuple tys -> Doc.tupled (map P.pretty tys)
+      TcList ty ->
+        Doc.brackets (P.pretty ty)
+      TcUndefined ->
+        Doc.red (Doc.text "undefined")
 
 instance P.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident
@@ -181,6 +164,12 @@ instance P.Pretty t => P.Pretty (TcQual s t) where
         P.parensIf (length quals > 1) (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty quals) Doc.<+>
         Doc.text "⇒" Doc.<+> P.prettyPrec p t
 
+instance P.Pretty t => P.Pretty (Qualified t) where
+    prettyPrec p ([] :=> t) = P.prettyPrec p t
+    prettyPrec p (quals :=> t) =
+        P.parensIf (length quals > 1) (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty quals) Doc.<+>
+        Doc.text "⇒" Doc.<+> P.prettyPrec p t
+
 instance P.Pretty GlobalName where
     pretty (GlobalName _ qname) = P.pretty qname
 
@@ -191,6 +180,40 @@ instance P.Pretty QualifiedName where
 instance P.Pretty (TcPred s) where
     pretty (TcIsIn gname t) =
         P.pretty gname Doc.<+> P.pretty t
+
+instance P.Pretty Predicate where
+    pretty (IsIn gname t) =
+        P.pretty gname Doc.<+> P.pretty t
+
+
+instance P.Pretty Type where
+  prettyPrec p ty =
+    case ty of
+      TyForall [] ([] :=> t) ->
+        P.prettyPrec p t
+      TyForall vars qual ->
+        Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
+        Doc.dot Doc.<+> P.pretty qual
+      TyFun a b -> P.parensIf (p > 0) $
+        P.prettyPrec arrowPrecedence a Doc.<+>
+        Doc.text "→ " Doc.<+> P.pretty b
+      TyApp a b -> P.parensIf (p > arrowPrecedence) $
+        P.pretty a Doc.<+> P.prettyPrec appPrecedence b
+      TyCon (QualifiedName "" ident) ->
+        Doc.text ident
+      TyCon (QualifiedName m ident) ->
+        Doc.text (m ++ "." ++ ident)
+      TyRef var -> P.pretty var
+      TyUnboxedTuple tys ->
+        Doc.text "(#" Doc.<+>
+        (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
+        Doc.text "#)"
+      TyTuple tys -> Doc.tupled (map P.pretty tys)
+      TyList ty ->
+        Doc.brackets (P.pretty ty)
+      TyUndefined ->
+        Doc.red (Doc.text "undefined")
+
 
 data TcQual s t = TcQual [TcPred s] t
     deriving ( Show, Eq, Ord )
@@ -206,8 +229,8 @@ data Predicate = IsIn GlobalName Type
 --data Typed = Typed TcType Origin
 
 data Typed
-  = Binding GlobalName Type SrcSpanInfo
-  | TypeApplication GlobalName [Type] SrcSpanInfo
+  = Binding GlobalName Type Proof SrcSpanInfo
+  | Usage GlobalName Proof SrcSpanInfo
   | Resolved GlobalName SrcSpanInfo
-  | ScopeError Scope.ScopeError
-  | None
+  | ScopeError Scope.ScopeError SrcSpanInfo
+  | None SrcSpanInfo
