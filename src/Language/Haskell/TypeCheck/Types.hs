@@ -191,7 +191,7 @@ instance P.Pretty Type where
     case ty of
       TyForall [] ([] :=> t) ->
         P.prettyPrec p t
-      TyForall vars qual ->
+      TyForall vars qual -> P.parensIf (p > 0) $
         Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
         Doc.dot Doc.<+> P.pretty qual
       TyFun a b -> P.parensIf (p > 0) $
@@ -214,6 +214,17 @@ instance P.Pretty Type where
       TyUndefined ->
         Doc.red (Doc.text "undefined")
 
+instance P.Pretty Proof where
+  prettyPrec prec p =
+    case p of
+      ProofAbs tvs p' -> P.parensIf (prec > 0) $
+        Doc.text "Λ" Doc.<> Doc.hsep (map P.pretty tvs) Doc.<> Doc.dot Doc.<+> P.pretty p'
+      ProofAp p' tys -> P.prettyPrec arrowPrecedence p' Doc.<+> Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) tys)
+      ProofLam n ty p' -> Doc.text "λ" Doc.<> Doc.int n Doc.<> Doc.text "::" Doc.<> P.pretty ty Doc.<> Doc.dot Doc.<+> P.pretty p'
+      ProofSrc ty -> P.prettyPrec prec ty
+      ProofPAp p1 p2 -> P.parensIf (prec > arrowPrecedence) $
+        P.pretty p1 Doc.<+> P.prettyPrec appPrecedence p2
+      ProofVar n -> Doc.int n
 
 data TcQual s t = TcQual [TcPred s] t
     deriving ( Show, Eq, Ord )

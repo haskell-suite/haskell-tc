@@ -4,7 +4,7 @@ import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Syntax hiding (Type(..))
 import qualified Language.Haskell.Exts.Syntax as HS
 
-import           Language.Haskell.Scope (Origin(..), GlobalName)
+import           Language.Haskell.Scope (Origin(..), GlobalName(..))
 import qualified Language.Haskell.Scope as Scope
 import           Language.Haskell.TypeCheck.Monad
 import           Language.Haskell.TypeCheck.Types
@@ -47,8 +47,18 @@ binding (Origin nameInfo srcspan) =
   case nameInfo of
     Scope.Resolved gname -> do
       Just ty <- lookupType gname
-      Just proof <- lookupProof srcspan
+      let GlobalName defLoc _qname = gname
+      Just proof <- lookupProof defLoc
       pure $ Binding gname ty proof srcspan
+    Scope.None           -> error "binding: None"
+    Scope.ScopeError err -> error "binding: ScopeError"
+
+usage :: Origin -> AnnM Typed
+usage (Origin nameInfo srcspan) =
+  case nameInfo of
+    Scope.Resolved gname -> do
+      Just proof <- lookupProof srcspan
+      pure $ Usage gname proof srcspan
     Scope.None           -> error "binding: None"
     Scope.ScopeError err -> error "binding: ScopeError"
 
@@ -106,9 +116,16 @@ annMatch match =
       Match
         <$> toTyped origin
         <*> annName binding name
-        <*> mapM annDummy pats
-        <*> annDummy rhs
+        <*> mapM annPat pats
+        <*> annRhs rhs
         <*> annMaybe annDummy mbBinds
+
+annPat :: Ann Pat
+annPat pat =
+  case pat of
+    PVar origin name ->
+      PVar <$> toTyped origin <*> annName binding name
+    _ -> annDummy pat
 
 annName :: (Origin -> AnnM Typed) -> Ann Name
 annName handler name =
@@ -117,7 +134,50 @@ annName handler name =
       Ident <$> handler origin <*> pure ident
     _ -> annDummy name
 
+annRhs :: Ann Rhs
+annRhs rhs =
+  case rhs of
+    UnGuardedRhs origin expr ->
+      UnGuardedRhs <$> toTyped origin <*> annExp expr
+    _ -> annDummy rhs
 
+annExp :: Ann Exp
+annExp expr =
+  case expr of
+    Var origin qname ->
+      Var <$> toTyped origin <*> annQName qname
+    App origin a b ->
+      App <$> toTyped origin <*> annExp a <*> annExp b
+    Case origin scrut alts ->
+      Case <$> toTyped origin <*> annExp scrut <*> mapM annAlt alts
+    Paren origin e ->
+      Paren <$> toTyped origin <*> annExp e
+    _ -> annDummy expr
+
+annAlt :: Ann Alt
+annAlt (Alt origin pat rhs mbBinds) =
+  Alt <$> toTyped origin
+    <*> annPat pat
+    <*> annRhs rhs
+    <*> annMaybe annBinds mbBinds
+
+annQName :: Ann QName
+annQName qname =
+  case qname of
+    Qual origin modName name ->
+      Qual <$> toTyped origin
+        <*> annModuleName modName
+        <*> annName usage name
+    UnQual origin name ->
+      UnQual <$> toTyped origin <*> annName usage name
+    _ -> annDummy qname
+
+annBinds :: Ann Binds
+annBinds binds =
+  case binds of
+    BDecls origin decls ->
+      BDecls <$> toTyped origin <*> mapM annDecl decls
+    _ -> annDummy binds
 
 ------------------------------------
 -- Misc

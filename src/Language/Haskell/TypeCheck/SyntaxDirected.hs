@@ -199,8 +199,9 @@ tiPat :: Rho s -> Pat Origin -> TI s ()
 tiPat exp_ty pat =
   case pat of
     PVar _ name -> do
-      let Origin (Resolved gname) _ = ann name
+      let Origin (Resolved gname) pin = ann name
       setAssumption gname exp_ty
+      setProof pin id exp_ty
     PApp _ con pats -> do
       ty <- TcMetaVar <$> newTcVar
       conSig <- findConAssumption con

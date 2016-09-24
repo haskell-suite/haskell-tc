@@ -83,12 +83,21 @@ getTcInfo file = do
       let (typed, env') = typecheck emptyTcEnv scoped
           allTyped = toList typed
       return $ Right $ show $ Doc.vsep $
+        [ Doc.text "Bindings:"] ++
         [ ppQualName qname <+> text "::" <+> tyMsg Doc.<$$>
           ppLocation 2 fileContent srcspan
         | Binding gname ty proof srcspan <- allTyped
         , let GlobalName defLoc qname = gname
               tyMsg = P.pretty ty
-        ]++ [Doc.empty]
+        ] ++
+        [ Doc.empty, Doc.text "Proofs:"] ++
+        [ ppQualName qname <+> text "::" <+> tyMsg Doc.<$$>
+          ppLocation 2 fileContent srcspan
+        | Usage gname proof srcspan <- allTyped
+        , let GlobalName defLoc qname = gname
+              tyMsg = P.pretty proof
+        ] ++
+        [Doc.empty]
       -- tcEnv <- runTI emptyTcEnv (tiModule scoped)
       -- return $ Right $ show $ Doc.vsep $
       --   [ ppQualName qname <+> text "::" <+> tyMsg <> (case mbCoercion of
