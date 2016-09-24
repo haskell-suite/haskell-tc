@@ -92,22 +92,26 @@ getMetaTyVars tys = goMany tys []
 getFreeMetaVariables :: TI s [TcMetaVar s]
 getFreeMetaVariables = getMetaTyVars =<< getEnvTypes
 
-substituteTyVars :: [(TcVar, TcMetaVar s)] -> TcType s -> TcType s
+substituteTyVars :: [(TcVar, TcMetaVar s)] -> TcType s -> TI s (TcType s)
 substituteTyVars vars = go
   where
-    go (TcForall tvs (TcQual preds ty)) = TcForall tvs (TcQual preds (go ty))
-    go (TcFun a b)          = TcFun (go a) (go b)
-    go (TcApp a b)          = TcApp (go a) (go b)
+    go (TcForall tvs (TcQual preds ty)) = TcForall tvs <$> (TcQual preds <$> go ty)
+    go (TcFun a b)          = TcFun <$> go a <*> go b
+    go (TcApp a b)          = TcApp <$> go a <*> go b
     go (TcRef var)          =
       case lookup var vars of
-        Nothing -> TcRef var
-        Just meta -> TcMetaVar meta
-    go (TcCon con)          = TcCon con
-    go (TcMetaVar meta)     = TcMetaVar meta
-    go (TcUnboxedTuple tys) = TcUnboxedTuple (map go tys)
-    go (TcTuple tys)        = TcTuple (map go tys)
-    go (TcList ty)          = TcList (go ty)
-    go TcUndefined          = TcUndefined
+        Nothing -> pure $ TcRef var
+        Just meta -> pure $ TcMetaVar meta
+    go (TcCon con)          = pure $ TcCon con
+    go (TcMetaVar meta@(TcMetaRef _name var)) = do
+      mbVal <- liftST $ readSTRef var
+      case mbVal of
+        Nothing -> pure $ TcMetaVar meta
+        Just val -> go val
+    go (TcUnboxedTuple tys) = TcUnboxedTuple <$> mapM go tys
+    go (TcTuple tys)        = TcTuple <$> mapM go tys
+    go (TcList ty)          = TcList <$> go ty
+    go TcUndefined          = pure TcUndefined
 
 writeMetaVar :: TcMetaVar s -> TcType s -> TI s ()
 writeMetaVar (TcMetaRef _name var) ty = liftST $ do

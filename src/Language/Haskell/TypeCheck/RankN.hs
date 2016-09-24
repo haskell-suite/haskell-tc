@@ -4,15 +4,22 @@ import Language.Haskell.TypeCheck.Types
 import Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.Unify
+import Language.Haskell.TypeCheck.Proof
 
 import Control.Monad
 import Data.List
 import Data.STRef
 
+import qualified Language.Haskell.TypeCheck.Pretty as P
+import Debug.Trace
+
+
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
-instantiate (TcForall tvs (TcQual [] ty)) = do
+instantiate orig@(TcForall tvs (TcQual [] ty)) = do
   tvs' <- replicateM (length tvs) newTcVar
-  return (substituteTyVars (zip tvs tvs') ty, \x -> TcProofAp x (map TcMetaVar tvs'))
+  ty' <- substituteTyVars (zip tvs tvs') ty
+  debug $ "Instantiate: " ++ show (P.pretty orig) ++ " ||| " ++ show (P.pretty ty')
+  return (ty', \x -> TcProofAp x (map TcMetaVar tvs'))
 instantiate TcForall{} = error "instantiate: Predicate not supported yet."
 instantiate tau = return (tau, id)
 
@@ -23,13 +30,13 @@ Skolemize hoists all forall's to the top-level and returns a coercion function
 from the new sigma type to the old sigma type.
 -}
 skolemize :: Sigma s -> TI s ([TcVar], Rho s, TcCoercion s)
--- skolemize (TcForAll tvs ty) = do
---   sks1 <- mapM newSkolemTyVars tyvas
---   (sks2, ty', f) <- skolemize (substTy tvs (map TyVar sks1) ty)
---   return (sks1 ++ sks2, ty', CoerceAbsAp sks1 f)
--- skolemize (TcFun arg_ty res_ty) = do
---   (sks, res_ty', f) <- skolemize res_ty
---   return (sks, TcFun arg_ty res_ty', CoerceFunAbsAp sks f)
+skolemize (TcForall tvs (TcQual [] ty)) = do
+  (sks2, ty', f) <- skolemize ty
+  return (tvs ++ sks2, ty', \x -> tcProofAbs tvs $ f (x `TcProofAp` map TcRef tvs))
+skolemize (TcFun arg_ty res_ty) = do
+  (sks, res_ty', f) <- skolemize res_ty
+  u <- newUnique
+  return (sks, TcFun arg_ty res_ty', \x -> tcProofLam u arg_ty $ f $ tcProofAbs sks $ (x `TcProofAp` map TcRef sks) `TcProofPAp` TcProofVar u)
 skolemize ty =
   return ([], ty, id)
 
@@ -92,7 +99,7 @@ subsCheck sigma1 sigma2 = do
   -- /\a.rho = sigma2
   -- \sigma1 -> forallrho2ToSigma2 (/\a. sigma1ToRho2 sigma1)
   -- return (CoerceCompose (CoerceAbs skol_tvs) sigma2ToRho2)
-  return $ \x -> forallrho2ToSigma2 (TcProofAbs skol_tvs (sigma1ToRho2 x))
+  return $ \x -> forallrho2ToSigma2 (tcProofAbs skol_tvs (sigma1ToRho2 x))
 
 -- instSigma ((forall a. a -> a) -> Int) ((forall a b. a -> b) -> Int)
 --     = CoerceFun Id (subsCheck (forall a b. a -> b) (forall a. a -> a))
@@ -139,7 +146,7 @@ subsCheckFun a1 r1 a2 r2 = do
   co_res <- subsCheckRho r1 r2
   -- co_res :: r1 -> r2
   u <- newUnique
-  return $ \x -> TcProofLam u a2 (co_res (x `TcProofPAp` co_arg (TcProofVar u)))
+  return $ \x -> tcProofLam u a2 (co_res (x `TcProofPAp` co_arg (TcProofVar u)))
 
 
 

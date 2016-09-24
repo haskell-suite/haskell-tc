@@ -29,7 +29,8 @@ unify (TcUnboxedTuple as) (TcUnboxedTuple bs)
     | length as == length bs = zipWithM_ unify as bs
 unify (TcMetaVar ref) a = unifyMetaVar ref a
 unify a (TcMetaVar ref) = unifyMetaVar ref a
-unify a b               = error $ "unify: " ++ show (a,b)
+unify (TcRef a) (TcRef b) | a == b = return ()
+unify a b               = error $ "unify: " ++ show (P.pretty a) ++ " <=> " ++ show (P.pretty b)
 
 unifyMetaVar :: TcMetaVar s -> TcType s -> TI s ()
 unifyMetaVar a (TcMetaVar b) | a == b = return ()

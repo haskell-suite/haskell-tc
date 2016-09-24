@@ -50,6 +50,9 @@ liftST action = TI $ StateT $ \env -> do
   a <- action
   return (a,env)
 
+debug :: String -> TI s ()
+debug str = trace str (return ())
+
 --type Infer a = a Origin -> TI (a Typed)
 
 emptyTcState :: TcState s
