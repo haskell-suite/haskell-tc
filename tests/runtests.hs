@@ -50,10 +50,10 @@ main = do
   defaultMain unitTests
 
 unitTests =
-  []
+  [ typeTest "Basic1" ]
 
 --scopeTest :: String -> FilePath -> Test
-scopeTest name = testCase name $ do
+typeTest name = testCase name $ do
   let testFile = name <.> "hs"
   expectedOutput <- readFile (replaceExtension testFile "stdout")
                         `mplus` return ""
@@ -84,18 +84,17 @@ getTcInfo file = do
           allTyped = toList typed
       return $ Right $ show $ Doc.vsep $
         [ Doc.text "Bindings:"] ++
-        [ ppQualName qname <+> text "::" <+> tyMsg Doc.<$$>
+        [ ppQualName qname <+> text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
           ppLocation 2 fileContent srcspan
         | Binding gname ty proof srcspan <- allTyped
         , let GlobalName defLoc qname = gname
               tyMsg = P.pretty ty
         ] ++
         [ Doc.empty, Doc.text "Proofs:"] ++
-        [ ppQualName qname <+> text "::" <+> tyMsg Doc.<$$>
+        [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
           ppLocation 2 fileContent srcspan
-        | Usage gname proof srcspan <- allTyped
-        , let GlobalName defLoc qname = gname
-              tyMsg = P.pretty proof
+        | Coerced proof _nameinfo srcspan <- allTyped
+        , let tyMsg = P.pretty proof
         ] ++
         [Doc.empty]
       -- tcEnv <- runTI emptyTcEnv (tiModule scoped)

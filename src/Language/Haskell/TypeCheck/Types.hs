@@ -49,6 +49,8 @@ type Rho s = TcType s
 -- No foralls anywhere.
 type Tau s = TcType s
 
+type ExpectedRho s = Expected s (Rho s)
+
 data Type
     = TyForall [TcVar] (Qualified Type)
     | TyFun Type Type
@@ -120,7 +122,7 @@ instance P.Pretty (TcType s) where
     case ty of
       TcForall [] (TcQual [] t) ->
         P.prettyPrec p t
-      TcForall vars qual ->
+      TcForall vars qual -> P.parensIf (p > 0) $
         Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
         Doc.dot Doc.<+> P.pretty qual
       TcFun a b -> P.parensIf (p > 0) $
@@ -219,11 +221,15 @@ instance P.Pretty Proof where
     case p of
       ProofAbs tvs p' -> P.parensIf (prec > 0) $
         Doc.text "Λ" Doc.<> Doc.hsep (map P.pretty tvs) Doc.<> Doc.dot Doc.<+> P.pretty p'
-      ProofAp p' tys -> P.prettyPrec arrowPrecedence p' Doc.<+> Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) tys)
-      ProofLam n ty p' -> Doc.text "λ" Doc.<> Doc.int n Doc.<> Doc.text "::" Doc.<> P.pretty ty Doc.<> Doc.dot Doc.<+> P.pretty p'
+      ProofAp p' tys -> P.parensIf (prec > 0) $
+        P.prettyPrec arrowPrecedence p' Doc.<+> Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) tys)
+      ProofLam n ty p' -> -- P.parensIf (True) $
+        Doc.text "λ" Doc.<>
+        Doc.int n Doc.<> Doc.text "::" Doc.<> P.prettyPrec appPrecedence ty Doc.<>
+        Doc.dot Doc.<+> P.pretty p'
       ProofSrc ty -> P.prettyPrec prec ty
       ProofPAp p1 p2 -> P.parensIf (prec > arrowPrecedence) $
-        P.pretty p1 Doc.<+> P.prettyPrec appPrecedence p2
+        P.prettyPrec arrowPrecedence p1 Doc.<+> P.prettyPrec appPrecedence p2
       ProofVar n -> Doc.int n
 
 data TcQual s t = TcQual [TcPred s] t
@@ -241,7 +247,5 @@ data Predicate = IsIn GlobalName Type
 
 data Typed
   = Binding GlobalName Type Proof SrcSpanInfo
-  | Usage GlobalName Proof SrcSpanInfo
-  | Resolved GlobalName SrcSpanInfo
-  | ScopeError Scope.ScopeError SrcSpanInfo
-  | None SrcSpanInfo
+  | Coerced Proof Scope.NameInfo SrcSpanInfo
+  | Scoped Scope.NameInfo SrcSpanInfo

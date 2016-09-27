@@ -1,10 +1,11 @@
-module Language.Haskell.TypeCheck.RankN where
+module Language.Haskell.TypeCheck.Subsumption where
 
 import Language.Haskell.TypeCheck.Types
 import Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.Unify
 import Language.Haskell.TypeCheck.Proof
+import           Language.Haskell.Exts.SrcLoc
 
 import Control.Monad
 import Data.List
@@ -15,11 +16,14 @@ import Debug.Trace
 
 
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
+instantiate (TcForall [] (TcQual [] ty)) = do
+  debug $ "Instatiate: Silly forall"
+  instantiate ty
 instantiate orig@(TcForall tvs (TcQual [] ty)) = do
   tvs' <- replicateM (length tvs) newTcVar
   ty' <- substituteTyVars (zip tvs tvs') ty
-  debug $ "Instantiate: " ++ show (P.pretty orig) ++ " ||| " ++ show (P.pretty ty')
-  return (ty', \x -> TcProofAp x (map TcMetaVar tvs'))
+  debug $ "Instantiate: " ++ show (P.pretty orig) ++ " => " ++ show (P.pretty ty')
+  return (ty', \x -> tcProofAp x (map TcMetaVar tvs'))
 instantiate TcForall{} = error "instantiate: Predicate not supported yet."
 instantiate tau = return (tau, id)
 
@@ -31,12 +35,13 @@ from the new sigma type to the old sigma type.
 -}
 skolemize :: Sigma s -> TI s ([TcVar], Rho s, TcCoercion s)
 skolemize (TcForall tvs (TcQual [] ty)) = do
-  (sks2, ty', f) <- skolemize ty
-  return (tvs ++ sks2, ty', \x -> tcProofAbs tvs $ f (x `TcProofAp` map TcRef tvs))
+  sks <- mapM newSkolemVar tvs
+  (sks2, ty', f) <- skolemize =<< substituteSkolem (zip tvs sks) ty
+  return (sks ++ sks2, ty', \x -> tcProofAbs sks $ f (x `tcProofAp` map TcRef sks))
 skolemize (TcFun arg_ty res_ty) = do
   (sks, res_ty', f) <- skolemize res_ty
   u <- newUnique
-  return (sks, TcFun arg_ty res_ty', \x -> tcProofLam u arg_ty $ f $ tcProofAbs sks $ (x `TcProofAp` map TcRef sks) `TcProofPAp` TcProofVar u)
+  return (sks, TcFun arg_ty res_ty', \x -> tcProofLam u arg_ty $ f $ tcProofAbs sks $ ((x `tcProofAp` map TcRef sks) `TcProofPAp` TcProofVar u))
 skolemize ty =
   return ([], ty, id)
 
@@ -46,7 +51,7 @@ quantify env_tvs rho = do
     rho_tvs <- getMetaTyVars [rho]
     let meta = rho_tvs \\ env_tvs
         tvs = map toTcVar meta
-    forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
+    -- forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
     return (TcForall tvs (TcQual [] rho), tvs)
   where
     toTcVar (TcMetaRef name _) = TcVar name noSrcSpanInfo
@@ -56,14 +61,14 @@ quantify env_tvs rho = do
 -- tcRho :: Term -> Expected s (Rho s) -> TI s ()
 -- tcRho = undefined
 
--- checkRho :: Term -> Rho s -> TI s ()
--- checkRho term ty = tcRho term (Check ty)
+checkRho :: (ExpectedRho s -> TI s ()) -> Rho s -> TI s ()
+checkRho action ty = action (Check ty)
 
--- inferRho :: Term -> TI s (Rho s)
--- inferRho term = do
---   ref <- liftST $ newSTRef (error "inferRho: empty result")
---   tcRho term (Infer ref)
---   liftST $ readSTRef ref
+inferRho :: (ExpectedRho s -> TI s ()) -> TI s (Rho s)
+inferRho action = do
+  ref <- liftST $ newSTRef (error "inferRho: empty result")
+  action (Infer ref)
+  liftST $ readSTRef ref
 
 -- inferSigma :: Term -> TI s (Sigma s)
 -- inferSigma term = do
@@ -75,27 +80,29 @@ quantify env_tvs rho = do
 --   (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
 --   return sigma
 
--- checkSigma :: Term -> Sigma s -> TI s ()
--- checkSigma term sigma = do
---   (skol_tvs, rho, p) <- skolemize sigma
---   checkRho term rho
---   env_tys <- getEnvTypes
---   esc_tvs <- getFreeTyVars (sigma : env_tys)
---   let bad_tvs = filter (`elem` esc_tvs) skol_tvs
---   unless (null bad_tvs) $ error "Type not polymorphic enough"
---   -- let coercion = CoerceAbs skol_tvs
---   return ()
+checkSigma :: SrcSpanInfo -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
+checkSigma pin action sigma = do
+  debug $ "CheckSigma: " ++ show (P.pretty sigma)
+  (skol_tvs, rho, p) <- skolemize sigma
+  checkRho action rho
+  -- env_tys <- getEnvTypes
+  -- esc_tvs <- getFreeTyVars (sigma : env_tys)
+  -- let bad_tvs = filter (`elem` esc_tvs) skol_tvs
+  -- unless (null bad_tvs) $ error $ "Type not polymorphic enough: " ++ show (P.pretty bad_tvs)
+  let coercion = tcProofAbs skol_tvs
+  setProof pin coercion rho
 
 -- Rule DEEP-SKOL
 -- subsCheck offered_type expected_type
 -- coercion :: Sigma1 -> Sigma2
 subsCheck :: TcType s -> TcType s -> TI s (TcCoercion s)
 subsCheck sigma1 sigma2 = do
+  debug $ "subsCheck: " ++ show (P.pretty sigma1) ++ " >> " ++ show (P.pretty sigma2)
   (skol_tvs, rho2, forallrho2ToSigma2) <- skolemize sigma2
   sigma1ToRho2 <- subsCheckRho sigma1 rho2
   esc_tvs <- getFreeTyVars [sigma1, sigma2]
   let bad_tvs = filter (`elem` esc_tvs) skol_tvs
-  unless (null bad_tvs) $ error "Subsumption check failed"
+  unless (null bad_tvs) $ error $ "Subsumption check failed: " ++ show bad_tvs
   -- /\a.rho = sigma2
   -- \sigma1 -> forallrho2ToSigma2 (/\a. sigma1ToRho2 sigma1)
   -- return (CoerceCompose (CoerceAbs skol_tvs) sigma2ToRho2)

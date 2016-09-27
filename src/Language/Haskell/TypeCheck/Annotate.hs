@@ -13,6 +13,9 @@ import qualified Language.Haskell.TypeCheck.Types as TC
 import           Data.Map                         (Map)
 import qualified Data.Map                         as Map
 import Control.Monad.Reader
+import Data.Maybe
+
+import Debug.Trace
 
 data AnnEnv = AnnEnv
   { annTypes :: Map GlobalName Type
@@ -36,11 +39,7 @@ annotate m =
 annDummy :: Functor a => Ann a
 annDummy = pure . fmap dummy
   where
-    dummy (Origin nameInfo srcspan) =
-      case nameInfo of
-        Scope.Resolved gname -> Resolved gname srcspan
-        Scope.None           -> None srcspan
-        Scope.ScopeError err -> ScopeError err srcspan
+    dummy (Origin nameInfo srcspan) = Scoped nameInfo srcspan
 
 binding :: Origin -> AnnM Typed
 binding (Origin nameInfo srcspan) =
@@ -48,26 +47,20 @@ binding (Origin nameInfo srcspan) =
     Scope.Resolved gname -> do
       Just ty <- lookupType gname
       let GlobalName defLoc _qname = gname
-      Just proof <- lookupProof defLoc
+      proof <- fromMaybe (ProofSrc ty) <$> lookupProof defLoc
       pure $ Binding gname ty proof srcspan
     Scope.None           -> error "binding: None"
     Scope.ScopeError err -> error "binding: ScopeError"
 
-usage :: Origin -> AnnM Typed
-usage (Origin nameInfo srcspan) =
-  case nameInfo of
-    Scope.Resolved gname -> do
-      Just proof <- lookupProof srcspan
-      pure $ Usage gname proof srcspan
-    Scope.None           -> error "binding: None"
-    Scope.ScopeError err -> error "binding: ScopeError"
+coerced :: Origin -> AnnM Typed
+coerced (Origin nameInfo srcspan) = do
+  mbProof <- lookupProof srcspan
+  case mbProof of
+    Nothing -> pure $ Scoped nameInfo srcspan
+    Just proof -> pure $ Coerced proof nameInfo srcspan
 
 toTyped :: Origin -> AnnM Typed
-toTyped (Origin nameInfo srcspan) =
-  case nameInfo of
-    Scope.Resolved gname -> pure $ Resolved gname srcspan
-    Scope.None           -> pure $ None srcspan
-    Scope.ScopeError err -> pure $ ScopeError err srcspan
+toTyped (Origin nameInfo srcspan) = pure $ Scoped nameInfo srcspan
 
 annMaybe :: Ann a -> AnnT Maybe a
 annMaybe _ Nothing   = pure Nothing
@@ -107,6 +100,11 @@ annDecl decl =
       FunBind
         <$> toTyped origin
         <*> mapM annMatch matches
+    PatBind origin pat rhs mbBinds ->
+      PatBind <$> toTyped origin
+        <*> annPat pat
+        <*> annRhs rhs
+        <*> annMaybe annBinds mbBinds
     _ -> annDummy decl
 
 annMatch :: Ann Match
@@ -147,11 +145,13 @@ annExp expr =
     Var origin qname ->
       Var <$> toTyped origin <*> annQName qname
     App origin a b ->
-      App <$> toTyped origin <*> annExp a <*> annExp b
+      App <$> coerced origin <*> annExp a <*> annExp b
     Case origin scrut alts ->
-      Case <$> toTyped origin <*> annExp scrut <*> mapM annAlt alts
+      Case <$> coerced origin <*> annExp scrut <*> mapM annAlt alts
+    Lambda origin pats e ->
+      Lambda <$> coerced origin <*> mapM annPat pats <*> annExp e
     Paren origin e ->
-      Paren <$> toTyped origin <*> annExp e
+      Paren <$> coerced origin <*> annExp e
     _ -> annDummy expr
 
 annAlt :: Ann Alt
@@ -167,9 +167,9 @@ annQName qname =
     Qual origin modName name ->
       Qual <$> toTyped origin
         <*> annModuleName modName
-        <*> annName usage name
+        <*> annName toTyped name
     UnQual origin name ->
-      UnQual <$> toTyped origin <*> annName usage name
+      UnQual <$> toTyped origin <*> annName coerced name
     _ -> annDummy qname
 
 annBinds :: Ann Binds

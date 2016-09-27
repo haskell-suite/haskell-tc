@@ -14,7 +14,7 @@ import qualified Data.Set                               as Set
 import           Language.Haskell.Exts.Syntax (Boxed (..), Name,
                                                          QName (..),
                                                          SpecialCon (..),
-                                                         Type (..), ann)
+                                                         Type (..), TyVarBind(..),ann)
 import           Language.Haskell.Exts.SrcLoc
 
 import           Language.Haskell.Scope
@@ -125,7 +125,7 @@ findAssumption ident = do
 
 setProof :: SrcSpanInfo -> TcCoercion s -> TcType s -> TI s ()
 setProof span coercion src = modify $ \env ->
-    env{ tcStateProofs = Map.insert span proof (tcStateProofs env) }
+    env{ tcStateProofs = Map.insertWith (\_ old -> coercion old) span proof (tcStateProofs env) }
   where
     proof = coercion (TcProofSrc src)
 
@@ -217,19 +217,25 @@ newTcVar = do
 typeToTcType :: Type Origin -> TcType s
 typeToTcType ty =
     case ty of
-        TyFun _ a b -> TcFun (typeToTcType a) (typeToTcType b)
-        TyVar _ name -> TcRef (tcVarFromName name)
-        TyCon _ (Special _ UnitCon{}) ->
-            TcTuple []
-        TyCon _ conName ->
-            let Origin (Resolved (GlobalName _ qname)) _ = ann conName
-            in TcCon qname
-        TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
-        TyParen _ t -> typeToTcType t
-        TyTuple _ Unboxed tys -> TcUnboxedTuple (map typeToTcType tys)
-        TyTuple _ Boxed tys -> TcTuple (map typeToTcType tys)
-        TyList _ elt -> TcList (typeToTcType elt)
-        _ -> error $ "typeToTcType: " ++ show ty
+      TyForall _ (Just tybinds) mbContext ty' ->
+        TcForall
+          [ case bind of
+              KindedVar _ name _kind -> tcVarFromName name
+              UnkindedVar _ name -> tcVarFromName name | bind <- tybinds ]
+          (TcQual [] (typeToTcType ty'))
+      TyFun _ a b -> TcFun (typeToTcType a) (typeToTcType b)
+      TyVar _ name -> TcRef (tcVarFromName name)
+      TyCon _ (Special _ UnitCon{}) ->
+          TcTuple []
+      TyCon _ conName ->
+          let Origin (Resolved (GlobalName _ qname)) _ = ann conName
+          in TcCon qname
+      TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
+      TyParen _ t -> typeToTcType t
+      TyTuple _ Unboxed tys -> TcUnboxedTuple (map typeToTcType tys)
+      TyTuple _ Boxed tys -> TcTuple (map typeToTcType tys)
+      TyList _ elt -> TcList (typeToTcType elt)
+      _ -> error $ "typeToTcType: " ++ show ty
 
 --tcTypeToScheme :: TcType -> TcType
 --tcTypeToScheme ty = Scheme (freeTcVariables ty) ([] :=> ty)
