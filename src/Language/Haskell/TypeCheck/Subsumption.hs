@@ -19,12 +19,14 @@ instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
 instantiate (TcForall [] (TcQual [] ty)) = do
   debug $ "Instatiate: Silly forall"
   instantiate ty
-instantiate orig@(TcForall tvs (TcQual [] ty)) = do
+instantiate orig@(TcForall tvs (TcQual preds ty)) = do
   tvs' <- replicateM (length tvs) newTcVar
   ty' <- substituteTyVars (zip tvs tvs') ty
+  preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs tvs'))
   debug $ "Instantiate: " ++ show (P.pretty orig) ++ " => " ++ show (P.pretty ty')
+  addPredicates preds'
   return (ty', \x -> tcProofAp x (map TcMetaVar tvs'))
-instantiate TcForall{} = error "instantiate: Predicate not supported yet."
+-- instantiate TcForall{} = error "instantiate: Predicate not supported yet."
 instantiate tau = return (tau, id)
 
 {-

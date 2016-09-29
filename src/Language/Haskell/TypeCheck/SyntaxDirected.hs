@@ -372,12 +372,13 @@ tiClassDecl decl =
 tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl Origin -> TI s ()
 tiPrepareClassDecl className [tyVar] decl =
     case decl of
-      -- ClsDecl _ (TypeSig _ names ty) -> do
-      --   forM_ names $ \name -> do
-      --     let Origin (Resolved gname) _ = ann name
-      --         ty' = typeToTcType ty
-      --     setAssumption gname
-      --       (TcForall (freeTcVariables ty') ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
+      ClsDecl _ (TypeSig _ names ty) -> do
+        forM_ names $ \name -> do
+          let Origin (Resolved gname) _ = ann name
+              ty' = typeToTcType ty
+          free <- getFreeTyVars [ty']
+          setAssumption gname
+            (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
       _ -> error $ "tiPrepareClassDecl: " ++ show decl
 tiPrepareClassDecl _ _ decl =
     error $ "tiPrepareClassDecl: " ++ show decl
@@ -419,6 +420,14 @@ tiExpl (decl, binder) = do
   checkRho (tiDecl decl) rho
   setProof (globalNameSrcSpanInfo binder) prenexToSigma (TcForall tvs (TcQual [] rho))
 
+{-
+Predicates:
+  collect predicates
+  reduce/simplify predicates
+  defer all predicates that refer to outer meta variables.
+  default all predicates that use meta variables not captured.
+  quantify type signatures with predicates
+-}
 tiDecls :: [(Decl Origin, GlobalName)] -> TI s ()
 tiDecls decls = withRecursive thisBindGroup $ do
     outer_meta <- getFreeMetaVariables
@@ -429,6 +438,9 @@ tiDecls decls = withRecursive thisBindGroup $ do
         ty <- findAssumption binder
         -- invariant: ty is Rho, not Sigma.
         checkRho (tiDecl decl) ty
+
+    preds <- getPredicates
+    forM_ preds $ debug . show . P.pretty
 
     knots <- getKnots
     forM_ decls $ \(_decl, binder) -> do

@@ -1,28 +1,29 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes                 #-}
 module Language.Haskell.TypeCheck.Monad where
 
 import           Control.Monad
-import           Control.Monad.State
 import           Control.Monad.ST
-import           Data.STRef
+import           Control.Monad.State
 import           Data.List
-import           Data.Map                               (Map)
-import qualified Data.Map                               as Map
-import           Data.Set                               (Set)
-import qualified Data.Set                               as Set
-import           Language.Haskell.Exts.Syntax (Boxed (..), Name,
-                                                         QName (..),
-                                                         SpecialCon (..),
-                                                         Type (..), TyVarBind(..),ann)
+import           Data.Map                          (Map)
+import qualified Data.Map                          as Map
+import           Data.Set                          (Set)
+import qualified Data.Set                          as Set
+import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
+import           Language.Haskell.Exts.Syntax      (Boxed (..), Name,
+                                                    QName (..), SpecialCon (..),
+                                                    TyVarBind (..), Type (..),
+                                                    ann, Context(..), Asst(..))
 
 import           Language.Haskell.Scope
-import           Language.Haskell.TypeCheck.Types hiding (Type(..), Typed(..))
-import qualified Language.Haskell.TypeCheck.Types as T
+import           Language.Haskell.TypeCheck.Types  hiding (Type (..),
+                                                    Typed (..))
+import qualified Language.Haskell.TypeCheck.Types  as T
 
+import           Debug.Trace
 import qualified Language.Haskell.TypeCheck.Pretty as P
-import Debug.Trace
 
 data TcEnv = TcEnv
   { tcEnvValues :: Map GlobalName T.Type
@@ -33,14 +34,17 @@ emptyTcEnv = TcEnv { tcEnvValues = Map.empty }
 
 data TcState s = TcState
     { -- Values such as 'length', 'Nothing', 'Just', etc
-      tcStateValues    :: Map GlobalName (TcType s)
-    , tcStateUnique    :: Int
-    , tcStateProofs    :: Map SrcSpanInfo (TcProof s)
-    , tcStateRecursive :: Set GlobalName
+      tcStateValues     :: Map GlobalName (TcType s)
+    , tcStateUnique     :: Int
+    , tcStateProofs     :: Map SrcSpanInfo (TcProof s)
+    , tcStateRecursive  :: Set GlobalName
     -- ^ Set of recursive bindings in the current group.
-    , tcStateKnots     :: [(GlobalName, SrcSpanInfo)]
+    , tcStateKnots      :: [(GlobalName, SrcSpanInfo)]
     -- ^ Locations where bindings from the current group are used. This is used to set
     --   proper coercions after generalization.
+
+    -- FIXME: We want to use a Writer for the predicates.
+    , tcStatePredicates :: [TcPred s]
     }
 newtype TI s a = TI { unTI :: StateT (TcState s) (ST s) a }
     deriving ( Monad, Functor, Applicative, MonadState (TcState s) )
@@ -61,7 +65,9 @@ emptyTcState = TcState
     , tcStateUnique    = 0
     , tcStateProofs = Map.empty
     , tcStateRecursive = Set.empty
-    , tcStateKnots = [] }
+    , tcStateKnots = []
+    , tcStatePredicates = []
+    }
 
 -- runTI :: forall a. TcEnv -> (forall s. TI s a) -> TcEnv
 -- runTI env action = runST (toEnv =<< execStateT (unTI f) st)
@@ -99,6 +105,17 @@ setKnot gname src =
 
 getKnots :: TI s [(GlobalName, SrcSpanInfo)]
 getKnots = gets tcStateKnots
+
+addPredicates :: [TcPred s] -> TI s ()
+addPredicates predicates =
+  modify $ \st -> st{tcStatePredicates = predicates ++ tcStatePredicates st}
+
+getPredicates :: TI s [TcPred s]
+getPredicates = gets tcStatePredicates
+
+setPredicates :: [TcPred s] -> TI s ()
+setPredicates predicates =
+  modify $ \st -> st{tcStatePredicates = predicates}
 
 newUnique :: TI s Int
 newUnique = do
@@ -222,7 +239,7 @@ typeToTcType ty =
           [ case bind of
               KindedVar _ name _kind -> tcVarFromName name
               UnkindedVar _ name -> tcVarFromName name | bind <- tybinds ]
-          (TcQual [] (typeToTcType ty'))
+          (TcQual (maybe [] contextToPredicates mbContext) (typeToTcType ty'))
       TyFun _ a b -> TcFun (typeToTcType a) (typeToTcType b)
       TyVar _ name -> TcRef (tcVarFromName name)
       TyCon _ (Special _ UnitCon{}) ->
@@ -236,6 +253,23 @@ typeToTcType ty =
       TyTuple _ Boxed tys -> TcTuple (map typeToTcType tys)
       TyList _ elt -> TcList (typeToTcType elt)
       _ -> error $ "typeToTcType: " ++ show ty
+
+contextToPredicates :: Context Origin -> [TcPred s]
+contextToPredicates ctx =
+  case ctx of
+    CxEmpty{} -> []
+    CxSingle _origin asst -> [assertionToPredicate asst]
+    CxTuple _origin assts -> map assertionToPredicate assts
+
+assertionToPredicate :: Asst Origin -> TcPred s
+assertionToPredicate asst =
+  case asst of
+    ParenA _ sub -> assertionToPredicate sub
+    ClassA _ qname [ty] ->
+      let Origin (Resolved gname) _ = ann qname in
+      TcIsIn gname (typeToTcType ty)
+    ClassA _ qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
+    _ -> error "assertionToPredicate: unsupported assertion"
 
 --tcTypeToScheme :: TcType -> TcType
 --tcTypeToScheme ty = Scheme (freeTcVariables ty) ([] :=> ty)
@@ -291,5 +325,6 @@ typeToTcType ty =
 noSrcSpanInfo :: SrcSpanInfo
 noSrcSpanInfo = infoSpan (mkSrcSpan noLoc noLoc) []
 
+-- mkBuiltIn moduleName identifier
 mkBuiltIn :: String -> String -> QualifiedName
-mkBuiltIn m ident = QualifiedName m ident
+mkBuiltIn = QualifiedName

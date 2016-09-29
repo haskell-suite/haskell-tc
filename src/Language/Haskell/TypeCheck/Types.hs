@@ -242,6 +242,8 @@ data TcPred s = TcIsIn GlobalName (TcType s)
 data Predicate = IsIn GlobalName Type
     deriving ( Show, Eq, Ord )
 
+-- type TcInstance s = TcQual s (TcPred s)
+-- type Instance = Qualified Predicate
 
 --data Typed = Typed TcType Origin
 

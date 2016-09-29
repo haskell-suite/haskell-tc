@@ -114,6 +114,9 @@ substituteTyVars vars = go
     go (TcList ty)          = TcList <$> go ty
     go TcUndefined          = pure TcUndefined
 
+mapTcPredM :: (TcType s -> TI s (TcType s)) -> TcPred s -> TI s (TcPred s)
+mapTcPredM fn (TcIsIn className ty) = TcIsIn className <$> fn ty
+
 substituteSkolem :: [(TcVar, TcVar)] -> TcType s -> TI s (TcType s)
 substituteSkolem vars = go
   where
