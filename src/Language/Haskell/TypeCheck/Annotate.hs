@@ -44,11 +44,11 @@ annDummy = pure . fmap dummy
 binding :: Origin -> AnnM Typed
 binding (Origin nameInfo srcspan) =
   case nameInfo of
-    Scope.Resolved gname -> do
-      Just ty <- lookupType gname
-      let GlobalName defLoc _qname = gname
-      proof <- fromMaybe (ProofSrc ty) <$> lookupProof defLoc
-      pure $ Binding gname ty proof srcspan
+    -- Scope.Resolved gname -> do
+    --   Just ty <- lookupType gname
+    --   let GlobalName defLoc _qname = gname
+    --   proof <- fromMaybe (ProofSrc ty) <$> lookupProof defLoc
+    --   pure $ Binding gname ty proof srcspan
     Scope.None           -> error "binding: None"
     Scope.ScopeError err -> error "binding: ScopeError"
 

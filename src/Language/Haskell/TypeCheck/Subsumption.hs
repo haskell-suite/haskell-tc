@@ -82,7 +82,7 @@ inferRho action = do
 --   (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
 --   return sigma
 
-checkSigma :: SrcSpanInfo -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
+checkSigma :: Pin s -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma pin action sigma = do
   debug $ "CheckSigma: " ++ show (P.pretty sigma)
   (skol_tvs, rho, p) <- skolemize sigma

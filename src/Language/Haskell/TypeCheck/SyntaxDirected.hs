@@ -26,12 +26,12 @@ import Debug.Trace
 --         UnGuardedAlt _ branch -> tiExp branch
 --         _ -> error "tiGuardedAlts"
 
-tiAlt :: Rho s -> ExpectedRho s -> Alt Origin -> TI s ()
+tiAlt :: Rho s -> ExpectedRho s -> Alt (Pin s) -> TI s ()
 tiAlt scrutTy exp_ty (Alt _ pat rhs _mbBinds) = do
   checkRho (tiPat pat) scrutTy
   tiRhs rhs exp_ty
 
-tiLit :: Literal Origin -> ExpectedRho s -> TI s ()
+tiLit :: Literal (Pin s) -> ExpectedRho s -> TI s ()
 tiLit lit exp_ty = do
   ty <- case lit of
     PrimInt{} -> return (TcCon (mkBuiltIn "LHC.Prim" "I64"))
@@ -120,14 +120,15 @@ bindIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` ((TcRef aRef `TcFun` i
 ioType :: TcType s
 ioType = TcCon (mkBuiltIn "LHC.Prim" "IO")
 
-tiExp ::  Exp Origin -> Expected s (Rho s) -> TI s ()
+tiExp ::  Exp (Pin s) -> Expected s (Rho s) -> TI s ()
 tiExp expr exp_ty =
   case expr of
     Case _ scrut alts -> do
       scrutTy <- inferRho (tiExp scrut)
       mapM_ (tiAlt scrutTy exp_ty) alts
     Var _ qname -> do
-      let Origin (Resolved gname) pin = ann qname
+      let pin = ann qname
+      gname <- expectResolvedPin pin
       tySig <- findAssumption gname
       debug $ "Var: " ++ show (P.pretty tySig)
       coercion <- instSigma tySig exp_ty
@@ -139,11 +140,12 @@ tiExp expr exp_ty =
           then setKnot gname pin
           else setProof pin coercion tySig
     Con _ (Special _ UnitCon{}) -> unifyExpected (TcTuple []) exp_ty
-    Con _ (Special (Origin _ pin) Cons{}) -> do
+    Con _ (Special pin Cons{}) -> do
       coercion <- instSigma consSigma exp_ty
       setProof pin coercion consSigma
     Con _ conName -> do
-      let Origin (Resolved gname) pin = ann conName
+      let pin = ann conName
+      gname <- expectResolvedPin pin
       tySig <- findAssumption gname
       coercion <- instSigma tySig exp_ty
       setProof pin coercion tySig
@@ -151,7 +153,7 @@ tiExp expr exp_ty =
       fnT <- inferRho (tiExp fn)
       (arg_ty, res_ty) <- unifyFun fnT
       debug $ "ArgTy: " ++ show (P.pretty arg_ty)
-      let Origin _ pin = ann a
+      let pin = ann a
       checkSigma pin (tiExp a) arg_ty
 
       -- debug $ "App pin: " ++ show pin
@@ -188,14 +190,14 @@ tiExp expr exp_ty =
     Let _ binds subExpr -> do
       tiBinds binds
       tiExp subExpr exp_ty
-    List (Origin _ pin) exprs -> do
+    List pin exprs -> do
       eltTy <- unifyList =<< expectList exp_ty
       setProof pin (`TcProofAp` [eltTy]) eltTy
       forM_ exprs $ \expr -> checkRho (tiExp expr) eltTy
     -- Do _ stmts -> tiStmts stmts
     _ -> error $ "tiExp: " ++ show expr
 
-findConAssumption :: QName Origin -> TI s (TcType s)
+findConAssumption :: QName (Pin s) -> TI s (TcType s)
 findConAssumption qname = case qname of
     Special _ con -> case con of
         UnitCon{} -> return (TcTuple [])
@@ -206,14 +208,16 @@ findConAssumption qname = case qname of
             ty <- TcMetaVar <$> newTcVar
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
     _ -> do
-        let Origin (Resolved gname) _ = ann qname
+        let pin = ann qname
+        gname <- expectResolvedPin pin
         findAssumption gname
 
-tiPat :: Pat Origin -> ExpectedRho s -> TI s ()
+tiPat :: Pat (Pin s) -> ExpectedRho s -> TI s ()
 tiPat pat exp_ty =
   case pat of
     PVar _ name -> do
-      let Origin (Resolved gname) pin = ann name
+      let pin = ann name
+      gname <- expectResolvedPin pin
       ty <- expectAny exp_ty
       setAssumption gname ty
       setProof pin id ty
@@ -247,14 +251,14 @@ tiPat pat exp_ty =
       return ()
     _ -> error $ "tiPat: " ++ show pat
 
-tiRhs :: Rhs Origin -> ExpectedRho s -> TI s ()
+tiRhs :: Rhs (Pin s) -> ExpectedRho s -> TI s ()
 tiRhs rhs exp_ty =
   case rhs of
     UnGuardedRhs _ expr ->
       tiExp expr exp_ty
     _ -> error "tiRhs"
 
-tiMatch :: Match Origin -> ExpectedRho s -> TI s ()
+tiMatch :: Match (Pin s) -> ExpectedRho s -> TI s ()
 tiMatch match exp_ty =
     case match of
       -- FIXME: typecheck the binds
@@ -274,13 +278,13 @@ tiMatch match exp_ty =
 --matchPatterns (Match _ _ paths _ _) = length paths
 --matchPatterns InfixMatch{} = 2
 
-tiBinds :: Binds Origin -> TI s ()
+tiBinds :: Binds (Pin s) -> TI s ()
 tiBinds binds =
     case binds of
         BDecls _ decls -> tiBindGroup decls
         _ -> error "Language.Haskell.TypeCheck.Infer.tiBinds"
 
-tiDecl :: Decl Origin -> ExpectedRho s -> TI s ()
+tiDecl :: Decl (Pin s) -> ExpectedRho s -> TI s ()
 tiDecl decl exp_ty =
   case decl of
     FunBind _ matches -> do
@@ -290,11 +294,11 @@ tiDecl decl exp_ty =
       tiRhs rhs exp_ty
     _ -> error $ "tiDecl: " ++ show decl
 
-declIdent :: Decl Origin -> SrcLoc
+declIdent :: Decl (Pin s) -> SrcLoc
 declIdent decl =
     case decl of
         FunBind _ (Match _ name _ _ _:_) ->
-            let Origin _ src = ann name
+            let Pin (Origin _ src) _ = ann name
             in getPointLoc src
         _ -> error "declIdent"
 
@@ -308,11 +312,11 @@ declIdent decl =
 --        liftIO $ print rTy
     -- qualify the type sigs...
 
-declHeadType :: DeclHead Origin -> ([TcVar], GlobalName)
+declHeadType :: DeclHead (Pin s) -> ([TcVar], GlobalName)
 declHeadType dhead =
     case dhead of
         DHead _ name ->
-            let Origin (Resolved gname) _ = ann name
+            let Pin (Origin (Resolved gname) _) _ = ann name
             in ([], gname)
         DHApp _ dh tyVarBind ->
             let (tcVars, gname) = declHeadType dh
@@ -323,11 +327,11 @@ declHeadType dhead =
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
     tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
 
-tiConDecl :: [TcVar] -> TcType s -> ConDecl Origin -> TI s (GlobalName, [TcType s])
+tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (GlobalName, [TcType s])
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
-            let Origin (Resolved gname) _ = ann con
+            let Pin (Origin (Resolved gname) _) _ = ann con
             -- setCoercion (globalNameSrcSpanInfo gname) (TcProofAbs tvars)
             return (gname, map typeToTcType tys)
         RecDecl _ con fields -> do
@@ -337,18 +341,18 @@ tiConDecl tvars dty conDecl =
             forM_ fields $ \(FieldDecl _ names fTy) -> do
                 let ty = TcFun dty (typeToTcType fTy)
                 forM_ names $ \name -> do
-                    let Origin (Resolved gname) _ = ann name
+                    gname <- expectResolvedPin (ann name)
                     setAssumption gname (TcForall tvars $ TcQual [] ty)
-            let Origin (Resolved gname) _ = ann con
+            gname <- expectResolvedPin (ann con)
             return (gname, conTys)
         _ -> error "tiConDecl"
 
-tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl Origin ->
+tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl (Pin s) ->
                  TI s (GlobalName, [TcType s])
 tiQualConDecl tvars dty (QualConDecl _ _ _ con) =
     tiConDecl tvars dty con
 
-tiClassDecl :: Decl Origin -> TI s ()
+tiClassDecl :: Decl (Pin s) -> TI s ()
 tiClassDecl decl =
     case decl of
         -- ClassDecl _ _ctx (DHead _ className [tyBind]) _deps (Just decls) ->
@@ -369,13 +373,13 @@ tiClassDecl decl =
     --     let scheme = TcForall [tcVar] ([IsIn gname (TcRef tcVar)] :=> tcType)
     --     setAssumption src scheme
 
-tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl Origin -> TI s ()
+tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl (Pin s) -> TI s ()
 tiPrepareClassDecl className [tyVar] decl =
     case decl of
       ClsDecl _ (TypeSig _ names ty) -> do
         forM_ names $ \name -> do
-          let Origin (Resolved gname) _ = ann name
-              ty' = typeToTcType ty
+          gname <- expectResolvedPin (ann name)
+          let ty' = typeToTcType ty
           free <- getFreeTyVars [ty']
           setAssumption gname
             (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
@@ -383,7 +387,7 @@ tiPrepareClassDecl className [tyVar] decl =
 tiPrepareClassDecl _ _ decl =
     error $ "tiPrepareClassDecl: " ++ show decl
 
-tiPrepareDecl :: Decl Origin -> TI s ()
+tiPrepareDecl :: Decl (Pin s) -> TI s ()
 tiPrepareDecl decl =
     case decl of
         DataDecl _ _ _ dhead cons _ -> do
@@ -392,17 +396,17 @@ tiPrepareDecl decl =
             forM_ cons $ \qualCon -> do
                 (con, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
                 let ty = foldr TcFun dataTy fieldTys
-                setProof (globalNameSrcSpanInfo con) (tcProofAbs tcvars) ty
+                -- setProof (globalNameSrcSpanInfo con) (tcProofAbs tcvars) ty
                 setAssumption con (TcForall tcvars $ TcQual [] ty)
         FunBind{} -> return ()
         PatBind{} -> return ()
         TypeDecl{} -> return ()
         ForImp _ _conv _safety _mbExternal name ty -> do
-            let Origin (Resolved gname) _ = ann name
+            gname <- expectResolvedPin (ann name)
             setAssumption gname (typeToTcType ty)
         TypeSig _ names ty ->
             forM_ names $ \name -> do
-                let Origin (Resolved gname) _ = ann name
+                gname <- expectResolvedPin (ann name)
                 setAssumption gname =<< explicitTcForall (typeToTcType ty)
                 --setCoercion (nameIdentifier name)
                 --    (CoerceAbs (freeTcVariables $ typeToTcType ty))
@@ -412,23 +416,23 @@ tiPrepareDecl decl =
             tiPrepareClassDecl className tcvars clsDecl
         _ -> error $ "tiPrepareDecl: " ++ show decl
 
-tiExpl :: (Decl Origin, GlobalName) -> TI s ()
+tiExpl :: (Decl (Pin s), GlobalName) -> TI s ()
 tiExpl (decl, binder) = do
   sigma <- findAssumption binder
   -- Hm, we need to do something with the 'tvs' but I can't see what.
   (tvs, rho, prenexToSigma) <- skolemize sigma
   checkRho (tiDecl decl) rho
-  setProof (globalNameSrcSpanInfo binder) prenexToSigma (TcForall tvs (TcQual [] rho))
+  setProof (ann decl) prenexToSigma (TcForall tvs (TcQual [] rho))
 
 {-
 Predicates:
   collect predicates
   reduce/simplify predicates
   defer all predicates that refer to outer meta variables.
-  default all predicates that use meta variables not captured.
+  default all predicates that don't refer to inner meta variables.
   quantify type signatures with predicates
 -}
-tiDecls :: [(Decl Origin, GlobalName)] -> TI s ()
+tiDecls :: [(Decl (Pin s), GlobalName)] -> TI s ()
 tiDecls decls = withRecursive thisBindGroup $ do
     outer_meta <- getFreeMetaVariables
     forM_ decls $ \(_decl, binder) -> do
@@ -443,10 +447,10 @@ tiDecls decls = withRecursive thisBindGroup $ do
     forM_ preds $ debug . show . P.pretty
 
     knots <- getKnots
-    forM_ decls $ \(_decl, binder) -> do
+    forM_ decls $ \(decl, binder) -> do
         ty <- findAssumption binder
         (gTy, tvs) <- quantify outer_meta ty
-        setProof (globalNameSrcSpanInfo binder) (tcProofAbs tvs) ty
+        setProof (ann decl) (tcProofAbs tvs) ty
         -- liftIO $ print $ Doc.pretty gTy
         setAssumption binder gTy
 
@@ -470,7 +474,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
 -- the environment. Then type check the implicit declarations in their
 -- strongly connected groups. Lastly, verify the signature of explicitly
 -- typed declarations (this includes instance methods).
-tiBindGroup :: [Decl Origin] -> TI s ()
+tiBindGroup :: [Decl (Pin s)] -> TI s ()
 tiBindGroup decls = do
     -- liftIO $ putStrLn $ "Explicit: " ++ show explicitlyTyped
     mapM_ tiPrepareDecl decls
@@ -495,7 +499,7 @@ tiBindGroup decls = do
 
 -- FIXME: Rename this function. We're not finding free variables, we finding
 --        all references.
-declFreeVariables :: Decl Origin -> [GlobalName]
+declFreeVariables :: Decl (Pin s) -> [GlobalName]
 declFreeVariables decl =
     case decl of
         FunBind _ matches -> concatMap freeMatch matches
@@ -533,22 +537,22 @@ declFreeVariables decl =
             QConOp{} -> []
     freeAlt (Alt _ _pat rhs _binds) = freeRhs rhs
 
-qnameIdentifier :: QName Origin -> GlobalName
+qnameIdentifier :: QName (Pin s) -> GlobalName
 qnameIdentifier qname =
     case qname of
         Qual _ _ name -> nameIdentifier name
         UnQual _ name -> nameIdentifier name
         _ -> error "qnameIdentifier"
 
-nameIdentifier :: Name Origin -> GlobalName
+nameIdentifier :: Name (Pin s) -> GlobalName
 nameIdentifier name =
     case info of
         Resolved gname -> gname
         _ -> error "nameIdentifier"
   where
-    Origin info _ = ann name
+    Pin (Origin info _) _ = ann name
 
-declBinders :: Decl Origin -> [GlobalName]
+declBinders :: Decl (Pin s) -> [GlobalName]
 declBinders decl =
     case decl of
         DataDecl{} -> []
@@ -556,10 +560,10 @@ declBinders decl =
         FunBind _ matches ->
             case head matches of
                 Match _ name _ _ _ ->
-                    let Origin (Resolved gname) _ = ann name
+                    let Pin (Origin (Resolved gname) _) _ = ann name
                     in [gname]
                 InfixMatch _ _ name _ _ _ ->
-                    let Origin (Resolved gname) _ = ann name
+                    let Pin (Origin (Resolved gname) _) _ = ann name
                     in [gname]
         PatBind _ pat _rhs _binds ->
             patBinders pat
@@ -568,15 +572,15 @@ declBinders decl =
         ClassDecl{} -> []
         _ -> error $ "declBinders: " ++ show decl
 
-patBinders :: Pat Origin -> [GlobalName]
+patBinders :: Pat (Pin s) -> [GlobalName]
 patBinders pat =
     case pat of
         PVar _ name ->
-            let Origin (Resolved gname) _ = ann name
+            let Pin (Origin (Resolved gname) _) _ = ann name
             in [gname]
         _ -> error $ "patBinders: " ++ show pat
 
-tiModule :: Module Origin -> TI s ()
+tiModule :: Module (Pin s) -> TI s ()
 tiModule m =
     case m of
         Module _ _dhead _pragma _imports decls ->

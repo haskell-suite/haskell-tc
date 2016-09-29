@@ -83,17 +83,17 @@ getTcInfo file = do
       let (typed, env') = typecheck emptyTcEnv scoped
           allTyped = toList typed
       return $ Right $ show $ Doc.vsep $
-        [ Doc.text "Bindings:"] ++
-        [ ppQualName qname <+> text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
-          ppLocation 2 fileContent srcspan
-        | Binding gname ty proof srcspan <- allTyped
-        , let GlobalName defLoc qname = gname
-              tyMsg = P.pretty ty
-        ] ++
+        -- [ Doc.text "Bindings:"] ++
+        -- [ ppQualName qname <+> text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
+        --   ppLocation 2 fileContent srcspan
+        -- | Binding gname ty proof srcspan <- allTyped
+        -- , let GlobalName defLoc qname = gname
+        --       tyMsg = P.pretty ty
+        -- ] ++
         [ Doc.empty, Doc.text "Proofs:"] ++
         [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
           ppLocation 2 fileContent srcspan
-        | Coerced proof _nameinfo srcspan <- allTyped
+        | Coerced _nameinfo srcspan proof  <- allTyped
         , let tyMsg = P.pretty proof
         ] ++
         [Doc.empty]

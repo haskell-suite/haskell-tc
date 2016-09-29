@@ -5,7 +5,7 @@ import Language.Haskell.TypeCheck.Types
 import Language.Haskell.TypeCheck.Monad
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.SyntaxDirected
-import Language.Haskell.TypeCheck.Annotate
+-- import Language.Haskell.TypeCheck.Annotate
 
 import Language.Haskell.Exts
 
@@ -25,8 +25,8 @@ typecheck env ast = runST (evalStateT (unTI f) st)
     st = emptyTcState
           { tcStateValues = Map.map toTcType (tcEnvValues env) }
     f = do
-      tiModule ast
+      pinned <- pinAST ast
+      tiModule pinned
+      typed <- unpinAST pinned
       tys <- getZonkedTypes
-      proofs <- getZonkedProofs
-      let annotated = runReader (annotate ast) (AnnEnv tys proofs)
-      return (annotated, TcEnv tys)
+      return (typed, TcEnv tys)

@@ -248,6 +248,10 @@ data Predicate = IsIn GlobalName Type
 --data Typed = Typed TcType Origin
 
 data Typed
-  = Binding GlobalName Type Proof SrcSpanInfo
-  | Coerced Proof Scope.NameInfo SrcSpanInfo
+  = Coerced Scope.NameInfo SrcSpanInfo Proof
   | Scoped Scope.NameInfo SrcSpanInfo
+
+data Pin s = Pin Scope.Origin (STRef s (Maybe (TcProof s)))
+
+instance Show (Pin s) where
+  show (Pin origin ref) = show origin

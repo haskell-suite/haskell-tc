@@ -15,11 +15,11 @@ import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Syntax      (Boxed (..), Name,
                                                     QName (..), SpecialCon (..),
                                                     TyVarBind (..), Type (..),
-                                                    ann, Context(..), Asst(..))
+                                                    ann, Context(..), Asst(..), Module)
 
 import           Language.Haskell.Scope
-import           Language.Haskell.TypeCheck.Types  hiding (Type (..),
-                                                    Typed (..))
+import           Language.Haskell.TypeCheck.Proof
+import           Language.Haskell.TypeCheck.Types  hiding (Type (..))
 import qualified Language.Haskell.TypeCheck.Types  as T
 
 import           Debug.Trace
@@ -39,7 +39,7 @@ data TcState s = TcState
     , tcStateProofs     :: Map SrcSpanInfo (TcProof s)
     , tcStateRecursive  :: Set GlobalName
     -- ^ Set of recursive bindings in the current group.
-    , tcStateKnots      :: [(GlobalName, SrcSpanInfo)]
+    , tcStateKnots      :: [(GlobalName, Pin s)]
     -- ^ Locations where bindings from the current group are used. This is used to set
     --   proper coercions after generalization.
 
@@ -99,11 +99,11 @@ withRecursive rec action = do
 isRecursive :: GlobalName -> TI s Bool
 isRecursive gname = gets $ Set.member gname . tcStateRecursive
 
-setKnot :: GlobalName -> SrcSpanInfo -> TI s ()
-setKnot gname src =
-    modify $ \st -> st{tcStateKnots = (gname,src) : tcStateKnots st}
+setKnot :: GlobalName -> Pin s -> TI s ()
+setKnot gname pin =
+    modify $ \st -> st{tcStateKnots = (gname,pin) : tcStateKnots st}
 
-getKnots :: TI s [(GlobalName, SrcSpanInfo)]
+getKnots :: TI s [(GlobalName, Pin s)]
 getKnots = gets tcStateKnots
 
 addPredicates :: [TcPred s] -> TI s ()
@@ -140,11 +140,35 @@ findAssumption ident = do
         Nothing -> error $ "Language.Haskell.TypeCheck.findAssumption: Missing ident: " ++ show ident
         Just scheme -> return scheme
 
-setProof :: SrcSpanInfo -> TcCoercion s -> TcType s -> TI s ()
-setProof span coercion src = modify $ \env ->
-    env{ tcStateProofs = Map.insertWith (\_ old -> coercion old) span proof (tcStateProofs env) }
+setProof :: Pin s -> TcCoercion s -> TcType s -> TI s ()
+setProof (Pin _ ref) coercion src = liftST $ do
+    mbProof <- readSTRef ref
+    case mbProof of
+      Nothing -> writeSTRef ref (Just $ coercion $ TcProofSrc src)
+      Just proof -> writeSTRef ref (Just $ coercion proof)
+
+pinAST :: Module Origin -> TI s (Module (Pin s))
+pinAST = liftST . traverse newPin
   where
-    proof = coercion (TcProofSrc src)
+    newPin origin = do
+      ref <- newSTRef Nothing
+      return $ Pin origin ref
+
+unpinAST :: Module (Pin s) -> TI s (Module Typed)
+unpinAST = traverse unpin
+  where
+    unpin (Pin (Origin nameinfo srcspan) ref) = do
+      mbProof <- liftST $ readSTRef ref
+      case mbProof of
+        Nothing -> return $ Scoped nameinfo srcspan
+        Just proof -> do
+          zonked <- simplifyProof <$> zonkProof proof
+          if isTrivial zonked
+            then pure $ Scoped nameinfo srcspan
+            else pure $ Coerced nameinfo srcspan zonked
+
+expectResolvedPin :: Pin s -> TI s GlobalName
+expectResolvedPin (Pin (Origin (Resolved gname) _) _) = pure gname
 
 -- getCoercion :: SrcSpanInfo -> TI s (TcCoercion s)
 -- getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
@@ -219,11 +243,11 @@ zonkProof proof =
     TcProofPAp p1 p2  -> ProofPAp <$> zonkProof p1 <*> zonkProof p2
     TcProofVar n      -> pure $ ProofVar n
 
-tcVarFromName :: Name Origin -> TcVar
+tcVarFromName :: Name (Pin s) -> TcVar
 tcVarFromName name =
     TcVar (getNameIdentifier name) src
   where
-    Origin (Resolved (GlobalName src _qname)) _ = ann name
+    Pin (Origin (Resolved (GlobalName src _qname)) _) _ = ann name
 
 newTcVar :: TI s (TcMetaVar s)
 newTcVar = do
@@ -231,7 +255,7 @@ newTcVar = do
     ref <- liftST $ newSTRef Nothing
     return $ TcMetaRef ("v"++show u) ref
 
-typeToTcType :: Type Origin -> TcType s
+typeToTcType :: Type (Pin s) -> TcType s
 typeToTcType ty =
     case ty of
       TyForall _ (Just tybinds) mbContext ty' ->
@@ -245,7 +269,7 @@ typeToTcType ty =
       TyCon _ (Special _ UnitCon{}) ->
           TcTuple []
       TyCon _ conName ->
-          let Origin (Resolved (GlobalName _ qname)) _ = ann conName
+          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann conName
           in TcCon qname
       TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
       TyParen _ t -> typeToTcType t
@@ -254,19 +278,19 @@ typeToTcType ty =
       TyList _ elt -> TcList (typeToTcType elt)
       _ -> error $ "typeToTcType: " ++ show ty
 
-contextToPredicates :: Context Origin -> [TcPred s]
+contextToPredicates :: Context (Pin s) -> [TcPred s]
 contextToPredicates ctx =
   case ctx of
     CxEmpty{} -> []
     CxSingle _origin asst -> [assertionToPredicate asst]
     CxTuple _origin assts -> map assertionToPredicate assts
 
-assertionToPredicate :: Asst Origin -> TcPred s
+assertionToPredicate :: Asst (Pin s) -> TcPred s
 assertionToPredicate asst =
   case asst of
     ParenA _ sub -> assertionToPredicate sub
     ClassA _ qname [ty] ->
-      let Origin (Resolved gname) _ = ann qname in
+      let Pin (Origin (Resolved gname) _) _ = ann qname in
       TcIsIn gname (typeToTcType ty)
     ClassA _ qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
     _ -> error "assertionToPredicate: unsupported assertion"
