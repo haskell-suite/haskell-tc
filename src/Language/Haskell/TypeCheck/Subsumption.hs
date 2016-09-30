@@ -17,13 +17,13 @@ import Debug.Trace
 
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
 instantiate (TcForall [] (TcQual [] ty)) = do
-  debug $ "Instatiate: Silly forall"
+  -- debug $ "Instatiate: Silly forall"
   instantiate ty
 instantiate orig@(TcForall tvs (TcQual preds ty)) = do
   tvs' <- replicateM (length tvs) newTcVar
   ty' <- substituteTyVars (zip tvs tvs') ty
   preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs tvs'))
-  debug $ "Instantiate: " ++ show (P.pretty orig) ++ " => " ++ show (P.pretty ty')
+  -- debug $ "Instantiate: " ++ show (P.pretty orig) ++ " => " ++ show (P.pretty ty')
   addPredicates preds'
   return (ty', \x -> tcProofAp x (map TcMetaVar tvs'))
 -- instantiate TcForall{} = error "instantiate: Predicate not supported yet."
@@ -84,7 +84,7 @@ inferRho action = do
 
 checkSigma :: Pin s -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma pin action sigma = do
-  debug $ "CheckSigma: " ++ show (P.pretty sigma)
+  -- debug $ "CheckSigma: " ++ show (P.pretty sigma)
   (skol_tvs, rho, p) <- skolemize sigma
   checkRho action rho
   -- env_tys <- getEnvTypes
@@ -99,7 +99,7 @@ checkSigma pin action sigma = do
 -- coercion :: Sigma1 -> Sigma2
 subsCheck :: TcType s -> TcType s -> TI s (TcCoercion s)
 subsCheck sigma1 sigma2 = do
-  debug $ "subsCheck: " ++ show (P.pretty sigma1) ++ " >> " ++ show (P.pretty sigma2)
+  -- debug $ "subsCheck: " ++ show (P.pretty sigma1) ++ " >> " ++ show (P.pretty sigma2)
   (skol_tvs, rho2, forallrho2ToSigma2) <- skolemize sigma2
   sigma1ToRho2 <- subsCheckRho sigma1 rho2
   esc_tvs <- getFreeTyVars [sigma1, sigma2]

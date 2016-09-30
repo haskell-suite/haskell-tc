@@ -51,13 +51,13 @@ unifyUnboundVar tv@(TcMetaRef _ident ref) bTy@(TcMetaVar b@(TcMetaRef _ refB)) =
     mbSubst <- liftST $ readSTRef refB
     case mbSubst of
         Just ty -> unify (TcMetaVar tv) ty
-        Nothing -> trace (show (P.pretty tv) ++ " = " ++ show (P.pretty bTy)) $
+        Nothing -> -- trace (show (P.pretty tv) ++ " = " ++ show (P.pretty bTy)) $
           liftST $ writeSTRef ref (Just $ TcMetaVar b)
 unifyUnboundVar tv@(TcMetaRef _ident ref) b = do
     tvs <- getMetaTyVars [b]
     if tv `elem` tvs
         then error "occurs check failed"
-        else trace (show (P.pretty tv) ++ " = " ++ show (P.pretty b)) $
+        else --trace (show (P.pretty tv) ++ " = " ++ show (P.pretty b)) $
           liftST $ writeSTRef ref (Just b)
 
 unifyFun :: Rho s -> TI s (Sigma s, Rho s)

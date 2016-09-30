@@ -18,7 +18,6 @@ import           Language.Haskell.TypeCheck.Unify
 import           Language.Haskell.TypeCheck.Types hiding (Type(..), Typed(..))
 
 import qualified Language.Haskell.TypeCheck.Pretty as P
-import Debug.Trace
 
 -- tiGuardedAlts :: GuardedAlts Origin -> TI TcType
 -- tiGuardedAlts galts =
@@ -130,7 +129,7 @@ tiExp expr exp_ty =
       let pin = ann qname
       gname <- expectResolvedPin pin
       tySig <- findAssumption gname
-      debug $ "Var: " ++ show (P.pretty tySig)
+      -- debug $ "Var: " ++ show (P.pretty tySig)
       coercion <- instSigma tySig exp_ty
       -- Proofs for recursive variables are set once all the mutually recursive
       -- variables have been type checked. Thus, instead of setting the proof
@@ -152,7 +151,7 @@ tiExp expr exp_ty =
     App _ fn a -> do
       fnT <- inferRho (tiExp fn)
       (arg_ty, res_ty) <- unifyFun fnT
-      debug $ "ArgTy: " ++ show (P.pretty arg_ty)
+      -- debug $ "ArgTy: " ++ show (P.pretty arg_ty)
       let pin = ann a
       checkSigma pin (tiExp a) arg_ty
 
@@ -172,7 +171,7 @@ tiExp expr exp_ty =
     -- -- \a b c -> d
     -- -- :: a -> b -> c -> d
     Lambda _ pats e | Check rho <- exp_ty -> do
-      debug $ "CheckLambda: " ++ show (P.pretty rho)
+      -- debug $ "CheckLambda: " ++ show (P.pretty rho)
       (patTys, resTy) <- unifyFuns (length pats) rho
       forM_ (zip patTys pats) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
       checkRho (tiExp e) resTy
@@ -444,7 +443,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
         checkRho (tiDecl decl) ty
 
     preds <- getPredicates
-    forM_ preds $ debug . show . P.pretty
+    -- forM_ preds $ debug . show . P.pretty
 
     knots <- getKnots
     forM_ decls $ \(decl, binder) -> do
