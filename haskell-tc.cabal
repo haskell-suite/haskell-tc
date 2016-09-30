@@ -16,10 +16,12 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Language.Haskell.TypeCheck,
-                       Language.Haskell.TypeCheck.Infer,
+  exposed-modules:     Language.Haskell.TypeCheck
+  other-modules:       Language.Haskell.TypeCheck.Unify,
                        Language.Haskell.TypeCheck.Types,
                        Language.Haskell.TypeCheck.Pretty,
+                       Language.Haskell.TypeCheck.Proof,
+                       Language.Haskell.TypeCheck.Subsumption,
                        Language.Haskell.TypeCheck.Monad
   -- other-modules:
   other-extensions:    GeneralizedNewtypeDeriving
