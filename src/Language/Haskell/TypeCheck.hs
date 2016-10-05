@@ -1,4 +1,8 @@
-module Language.Haskell.TypeCheck where
+module Language.Haskell.TypeCheck
+  ( module Language.Haskell.TypeCheck.Types
+  , TcEnv
+  , typecheck
+  ) where
 
 import Language.Haskell.Scope
 import Language.Haskell.TypeCheck.Types
