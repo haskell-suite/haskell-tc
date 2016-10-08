@@ -1,6 +1,6 @@
 module Language.Haskell.TypeCheck
   ( module Language.Haskell.TypeCheck.Types
-  , TcEnv
+  , TcEnv(..), emptyTcEnv
   , typecheck
   ) where
 

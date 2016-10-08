@@ -21,6 +21,8 @@ library
   other-modules:       Language.Haskell.TypeCheck.Unify,
                        Language.Haskell.TypeCheck.Types,
                        Language.Haskell.TypeCheck.Proof,
+                       Language.Haskell.TypeCheck.SyntaxDirected,
+                       Language.Haskell.TypeCheck.Misc,
                        Language.Haskell.TypeCheck.Subsumption,
                        Language.Haskell.TypeCheck.Monad
   -- other-modules:
