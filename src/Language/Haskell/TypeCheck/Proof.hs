@@ -2,8 +2,6 @@ module Language.Haskell.TypeCheck.Proof where
 
 import Language.Haskell.TypeCheck.Types
 
-import Debug.Trace
-
 tcProofAbs :: [TcVar] -> TcProof s -> TcProof s
 tcProofAbs [] x = x
 tcProofAbs lst (TcProofAp x lst') | map TcRef lst == lst' = x

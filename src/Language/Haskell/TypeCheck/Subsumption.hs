@@ -1,11 +1,10 @@
 module Language.Haskell.TypeCheck.Subsumption where
 
 import Language.Haskell.TypeCheck.Types
-import Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
+import Language.Haskell.TypeCheck.Monad
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.Unify
 import Language.Haskell.TypeCheck.Proof
-import           Language.Haskell.Exts.SrcLoc
 
 import Control.Monad
 import Data.List
@@ -56,7 +55,7 @@ quantify env_tvs rho = do
     -- forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
     return (TcForall tvs (TcQual [] rho), tvs)
   where
-    toTcVar (TcMetaRef name _) = TcVar name noSrcSpanInfo
+    toTcVar (TcMetaRef name _) = TcVar name []
 
 
 

@@ -3,21 +3,25 @@ module Language.Haskell.TypeCheck.SyntaxDirected where
 
 
 import           Control.Monad
-import           Data.Graph ( stronglyConnComp, flattenSCC )
-import           Language.Haskell.Exts.Syntax
+import           Data.Graph                             (flattenSCC,
+                                                         stronglyConnComp)
+import           Data.List
+import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
-import Data.List
-import Data.STRef
+import           Language.Haskell.Exts.Syntax
 
-import           Language.Haskell.Scope
-import           Language.Haskell.TypeCheck.Monad
-import           Language.Haskell.TypeCheck.Subsumption
+import           Language.Haskell.Scope                 (GlobalName (..),
+                                                         NameInfo (..),
+                                                         Origin (..))
 import           Language.Haskell.TypeCheck.Misc
+import           Language.Haskell.TypeCheck.Monad
 import           Language.Haskell.TypeCheck.Proof
+import           Language.Haskell.TypeCheck.Subsumption
+import           Language.Haskell.TypeCheck.Types       hiding (Type (..),
+                                                         Typed (..))
 import           Language.Haskell.TypeCheck.Unify
-import           Language.Haskell.TypeCheck.Types hiding (Type(..), Typed(..))
 
-import qualified Language.Haskell.TypeCheck.Pretty as P
+import qualified Language.Haskell.TypeCheck.Pretty as Doc
 
 -- tiGuardedAlts :: GuardedAlts Origin -> TI TcType
 -- tiGuardedAlts galts =
@@ -41,7 +45,7 @@ tiLit lit exp_ty = do
     Int{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Int")
     Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
     _ -> error $ "tiLit: " ++ show lit
-  coercion <- instSigma ty exp_ty
+  _coercion <- instSigma ty exp_ty
   -- Hm, what to do with the proof here. We need it for overloaded constants
   -- such as numbers and Strings (iff OverloadedStrings enabled).
   -- For now we can just ignore it.
@@ -95,15 +99,15 @@ tiLit lit exp_ty = do
 consSigma :: TcType s
 consSigma = TcForall [aRef] (TcQual [] (aTy `TcFun` (TcList aTy `TcFun` TcList aTy)))
   where
-    aRef = TcVar "a" noSrcSpanInfo
+    aRef = TcVar "a" []
     aTy = TcRef aRef
 
 -- forall a b. IO a -> IO b -> IO b
 thenIOSig :: TcType s
 thenIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` (ioB `TcFun` ioB)))
   where
-    aRef = TcVar "a" noSrcSpanInfo
-    bRef = TcVar "b" noSrcSpanInfo
+    aRef = TcVar "a" []
+    bRef = TcVar "b" []
     ioA = ioType `TcApp` TcRef aRef
     ioB = ioType `TcApp` TcRef bRef
 
@@ -111,13 +115,32 @@ thenIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` (ioB `TcFun` ioB)))
 bindIOSig :: TcType s
 bindIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` ((TcRef aRef `TcFun` ioB) `TcFun` ioB)))
   where
-    aRef = TcVar "a" noSrcSpanInfo
-    bRef = TcVar "b" noSrcSpanInfo
+    aRef = TcVar "a" []
+    bRef = TcVar "b" []
     ioA = ioType `TcApp` TcRef aRef
     ioB = ioType `TcApp` TcRef bRef
 
 ioType :: TcType s
 ioType = TcCon (mkBuiltIn "LHC.Prim" "IO")
+
+tiQName :: QName (Pin s) -> Expected s (Rho s) -> TI s ()
+tiQName (Special _ UnitCon{}) exp_ty = unifyExpected (TcTuple []) exp_ty
+tiQName (Special pin Cons{}) exp_ty = do
+  coercion <- instSigma consSigma exp_ty
+  setProof pin coercion consSigma
+tiQName (UnQual _src name) exp_ty = do
+  let pin = ann name
+  gname <- expectResolvedPin pin
+  tySig <- findAssumption gname
+  -- debug $ "Var: " ++ show (P.pretty tySig)
+  coercion <- instSigma tySig exp_ty
+  -- Proofs for recursive variables are set once all the mutually recursive
+  -- variables have been type checked. Thus, instead of setting the proof
+  -- now, we just note down the location (pin) and add the proof later.
+  isRec <- isRecursive gname
+  if isRec
+    then setKnot gname pin
+    else setProof pin coercion tySig
 
 tiExp ::  Exp (Pin s) -> Expected s (Rho s) -> TI s ()
 tiExp expr exp_ty =
@@ -125,19 +148,7 @@ tiExp expr exp_ty =
     Case _ scrut alts -> do
       scrutTy <- inferRho (tiExp scrut)
       mapM_ (tiAlt scrutTy exp_ty) alts
-    Var _ qname -> do
-      let pin = ann qname
-      gname <- expectResolvedPin pin
-      tySig <- findAssumption gname
-      -- debug $ "Var: " ++ show (P.pretty tySig)
-      coercion <- instSigma tySig exp_ty
-      -- Proofs for recursive variables are set once all the mutually recursive
-      -- variables have been type checked. Thus, instead of setting the proof
-      -- now, we just note down the location (pin) and add the proof later.
-      isRec <- isRecursive gname
-      if isRec
-          then setKnot gname pin
-          else setProof pin coercion tySig
+    Var _ qname -> tiQName qname exp_ty
     Con _ (Special _ UnitCon{}) -> unifyExpected (TcTuple []) exp_ty
     Con _ (Special pin Cons{}) -> do
       coercion <- instSigma consSigma exp_ty
@@ -148,6 +159,22 @@ tiExp expr exp_ty =
       tySig <- findAssumption gname
       coercion <- instSigma tySig exp_ty
       setProof pin coercion tySig
+    InfixApp _ a (QConOp _ qname) b -> do
+      fnTy <- inferRho (tiQName qname)
+      (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
+      checkSigma (ann a) (tiExp a) a_ty
+      checkSigma (ann b) (tiExp b) b_ty
+      _coercion <- instSigma res_ty exp_ty
+      return ()
+    InfixApp _ a (QVarOp _ qname) b -> do
+      fnTy <- inferRho (tiQName qname)
+      (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
+      checkSigma (ann a) (tiExp a) a_ty
+      checkSigma (ann b) (tiExp b) b_ty
+      _coercion <- instSigma res_ty exp_ty
+      return ()
+      -- a `fn` b :: exp_ty
+      -- fn :: a -> b -> exp_ty
     App _ fn a -> do
       fnT <- inferRho (tiExp fn)
       (arg_ty, res_ty) <- unifyFun fnT
@@ -192,7 +219,7 @@ tiExp expr exp_ty =
     List pin exprs -> do
       eltTy <- unifyList =<< expectList exp_ty
       setProof pin (`TcProofAp` [eltTy]) eltTy
-      forM_ exprs $ \expr -> checkRho (tiExp expr) eltTy
+      forM_ exprs $ \expr' -> checkRho (tiExp expr') eltTy
     -- Do _ stmts -> tiStmts stmts
     _ -> error $ "tiExp: " ++ show expr
 
@@ -206,14 +233,14 @@ findConAssumption qname = case qname of
         Cons{} -> do
             ty <- TcMetaVar <$> newTcVar
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
+        _ -> error "Language.Haskell.TypeCheck.SyntaxDirected.findConAssumption: Unhandled con type."
     _ -> do
-        let pin = ann qname
-        gname <- expectResolvedPin pin
+        gname <- qnameToGlobalName qname
         findAssumption gname
 
 tiPat :: Pat (Pin s) -> ExpectedRho s -> TI s ()
-tiPat pat exp_ty =
-  case pat of
+tiPat thisPat exp_ty =
+  case thisPat of
     PVar _ name -> do
       let pin = ann name
       gname <- expectResolvedPin pin
@@ -223,7 +250,6 @@ tiPat pat exp_ty =
     -- con :: p1 -> p2 -> ... -> ret
     -- con pat1 pat2 ...
     PApp _ con pats -> do
-      ty <- TcMetaVar <$> newTcVar
       conSig <- findConAssumption con
       (conTy, _coercion) <- instantiate conSig
       (patTys, retTy) <- unifyFuns (length pats) conTy
@@ -240,7 +266,7 @@ tiPat pat exp_ty =
       tiLit literal exp_ty
     PList _ pats -> do
       eltTy <- unifyList =<< expectList exp_ty
-      forM_ pats $ \pat -> checkRho (tiPat pat) eltTy
+      forM_ pats $ \pat' -> checkRho (tiPat pat') eltTy
     PInfixApp _ a con b -> do
       conSig <- findConAssumption con
       (conTy, _coercion) <- instantiate conSig
@@ -248,7 +274,7 @@ tiPat pat exp_ty =
       forM_ (zip patTys [a,b]) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
       _coercion <- instSigma retTy exp_ty
       return ()
-    _ -> error $ "tiPat: " ++ show pat
+    _ -> error $ "tiPat: " ++ show thisPat
 
 tiRhs :: Rhs (Pin s) -> ExpectedRho s -> TI s ()
 tiRhs rhs exp_ty =
@@ -260,18 +286,18 @@ tiRhs rhs exp_ty =
 tiMatch :: Match (Pin s) -> ExpectedRho s -> TI s ()
 tiMatch match exp_ty =
     case match of
-      -- FIXME: typecheck the binds
-      Match _ _ pats rhs Nothing -> do
+      Match _ _ pats rhs mbBinds -> do
         ty <- expectAny exp_ty
         (patTys, retTy) <- unifyFuns (length pats) ty
         forM_ (zip patTys pats) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
+        maybe (return ()) tiBinds mbBinds
         checkRho (tiRhs rhs) retTy
-      InfixMatch _ leftPat _ rightPats rhs Nothing -> do
+      InfixMatch _ leftPat _ rightPats rhs mbBinds -> do
+        maybe (return ()) tiBinds mbBinds
         ty <- expectAny exp_ty
         (patTys, retTy) <- unifyFuns (length $ leftPat:rightPats) ty
         forM_ (zip patTys (leftPat:rightPats)) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
         checkRho (tiRhs rhs) retTy
-      _ -> error "tiMatch"
 
 --matchPatterns :: Match l -> Int
 --matchPatterns (Match _ _ paths _ _) = length paths
@@ -315,7 +341,7 @@ declHeadType :: DeclHead (Pin s) -> ([TcVar], GlobalName)
 declHeadType dhead =
     case dhead of
         DHead _ name ->
-            let Pin (Origin (Resolved gname) _) _ = ann name
+            let Pin (Origin (Binding gname) _) _ = ann name
             in ([], gname)
         DHApp _ dh tyVarBind ->
             let (tcVars, gname) = declHeadType dh
@@ -330,7 +356,7 @@ tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (GlobalName, [TcType
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
-            let Pin (Origin (Resolved gname) _) _ = ann con
+            let Pin (Origin (Binding gname) _) _ = ann con
             -- setCoercion (globalNameSrcSpanInfo gname) (TcProofAbs tvars)
             return (gname, map typeToTcType tys)
         RecDecl _ con fields -> do
@@ -421,7 +447,7 @@ tiExpl (decl, binder) = do
   -- Hm, we need to do something with the 'tvs' but I can't see what.
   (tvs, rho, prenexToSigma) <- skolemize sigma
   checkRho (tiDecl decl) rho
-  setProof (ann decl) prenexToSigma (TcForall tvs (TcQual [] rho))
+  setProof (ann decl) (prenexToSigma . tcProofAbs tvs) rho
 
 {-
 Predicates:
@@ -442,7 +468,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
         -- invariant: ty is Rho, not Sigma.
         checkRho (tiDecl decl) ty
 
-    preds <- getPredicates
+    _preds <- getPredicates
     -- forM_ preds $ debug . show . P.pretty
 
     knots <- getKnots
@@ -450,7 +476,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
         ty <- findAssumption binder
         (gTy, tvs) <- quantify outer_meta ty
         setProof (ann decl) (tcProofAbs tvs) ty
-        -- liftIO $ print $ Doc.pretty gTy
+        debug $ show $ Doc.pretty gTy
         setAssumption binder gTy
 
         forM_ knots $ \(thisBinder, usageLoc) ->
@@ -463,7 +489,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
     forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
   where
     thisBindGroup = map snd decls
-    toTcVar (TcMetaRef name _) = TcVar name noSrcSpanInfo
+    toTcVar (TcMetaRef name _) = TcVar name []
 
 
 
@@ -502,12 +528,15 @@ declFreeVariables :: Decl (Pin s) -> [GlobalName]
 declFreeVariables decl =
     case decl of
         FunBind _ matches -> concatMap freeMatch matches
-        PatBind _ _pat rhs _binds -> freeRhs rhs
+        PatBind _ _pat rhs binds -> freeRhs rhs ++ freeBinds binds
         _ -> error $ "declFreeVariables: " ++ show decl
   where
+    freeBinds Nothing = []
+    freeBinds (Just (BDecls _src decls)) = concatMap declFreeVariables decls
+    freeBinds _ = error "declFreeVariables, freeBinds"
     freeMatch match =
         case match of
-            Match _ _ _pats rhs _binds -> freeRhs rhs
+            Match _ _ _pats rhs mbBinds -> freeRhs rhs ++ freeBinds mbBinds
             _ -> error "declFreeVariables, freeMatch"
     freeRhs rhs =
         case rhs of
@@ -556,14 +585,7 @@ declBinders decl =
     case decl of
         DataDecl{} -> []
         ForImp{}   -> []
-        FunBind _ matches ->
-            case head matches of
-                Match _ name _ _ _ ->
-                    let Pin (Origin (Resolved gname) _) _ = ann name
-                    in [gname]
-                InfixMatch _ _ name _ _ _ ->
-                    let Pin (Origin (Resolved gname) _) _ = ann name
-                    in [gname]
+        FunBind (Pin (Origin (Binding gname) _src) _) matches -> [gname]
         PatBind _ pat _rhs _binds ->
             patBinders pat
         TypeDecl{} -> []
@@ -575,7 +597,7 @@ patBinders :: Pat (Pin s) -> [GlobalName]
 patBinders pat =
     case pat of
         PVar _ name ->
-            let Pin (Origin (Resolved gname) _) _ = ann name
+            let Pin (Origin (Binding gname) _) _ = ann name
             in [gname]
         _ -> error $ "patBinders: " ++ show pat
 

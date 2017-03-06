@@ -1,20 +1,19 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Haskell.TypeCheck.Types where
 
-import           Data.IORef
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
 import qualified Language.Haskell.TypeCheck.Pretty as P
-import           System.IO.Unsafe                  (unsafePerformIO)
 import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
 
 import           Language.Haskell.Scope            (GlobalName (..),
-                                                    QualifiedName (..))
+                                                    QualifiedName (..), Location)
 import qualified Language.Haskell.Scope as Scope
 
+type SkolemRef = Int
+
 -- Type variables are uniquely identified by their name and binding point.
--- The binding point is not enough since ty vars can be bound at an implicit
--- forall.
-data TcVar = TcVar String SrcSpanInfo
+data TcVar = TcVar String Location
     deriving ( Show, Eq, Ord )
 
 data TcMetaVar s = TcMetaRef String (STRef s (Maybe (TcType s)))
@@ -36,6 +35,7 @@ data TcType s
     | TcCon QualifiedName
     -- Instantiated tyvar
     | TcMetaVar (TcMetaVar s)
+    | TcSkolemVar SkolemRef
     | TcUnboxedTuple [TcType s]
     | TcTuple [TcType s]
     | TcList (TcType s)
@@ -50,6 +50,9 @@ type Rho s = TcType s
 type Tau s = TcType s
 
 type ExpectedRho s = Expected s (Rho s)
+
+-- data TyVar = TyVar String Location
+--     deriving ( Show, Eq, Ord )
 
 data Type
     = TyForall [TcVar] (Qualified Type)
@@ -66,7 +69,8 @@ data Type
 toTcType :: Type -> TcType s
 toTcType ty =
   case ty of
-    TyForall tyvars (pred :=> t) -> TcForall tyvars (TcQual (map toTcPred pred) (toTcType t))
+    TyForall tyvars (predicates :=> t) ->
+      TcForall tyvars (TcQual (map toTcPred predicates) (toTcType t))
     TyFun t1 t2 -> TcFun (toTcType t1) (toTcType t2)
     TyApp t1 t2 -> TcApp (toTcType t1) (toTcType t2)
     TyRef tyvar -> TcRef tyvar
@@ -106,6 +110,7 @@ data Proof
   | ProofSrc Type
   | ProofPAp Proof Proof
   | ProofVar Int
+    deriving (Eq, Ord, Show)
 
 
 
@@ -118,8 +123,8 @@ appPrecedence :: Int
 appPrecedence = 2
 
 instance P.Pretty (TcType s) where
-  prettyPrec p ty =
-    case ty of
+  prettyPrec p thisTy =
+    case thisTy of
       TcForall [] (TcQual [] t) ->
         P.prettyPrec p t
       TcForall vars qual -> P.parensIf (p > 0) $
@@ -139,7 +144,7 @@ instance P.Pretty (TcType s) where
         P.prettyPrec p meta
       TcUnboxedTuple tys ->
         Doc.text "(#" Doc.<+>
-        (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
+        Doc.hsep (Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
         Doc.text "#)"
       TcTuple tys -> Doc.tupled (map P.pretty tys)
       TcList ty ->
@@ -189,8 +194,8 @@ instance P.Pretty Predicate where
 
 
 instance P.Pretty Type where
-  prettyPrec p ty =
-    case ty of
+  prettyPrec p thisTy =
+    case thisTy of
       TyForall [] ([] :=> t) ->
         P.prettyPrec p t
       TyForall vars qual -> P.parensIf (p > 0) $
@@ -208,7 +213,7 @@ instance P.Pretty Type where
       TyRef var -> P.pretty var
       TyUnboxedTuple tys ->
         Doc.text "(#" Doc.<+>
-        (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
+        Doc.hsep (Doc.punctuate Doc.comma $ map P.pretty tys) Doc.<+>
         Doc.text "#)"
       TyTuple tys -> Doc.tupled (map P.pretty tys)
       TyList ty ->
@@ -250,8 +255,9 @@ data Predicate = IsIn GlobalName Type
 data Typed
   = Coerced Scope.NameInfo SrcSpanInfo Proof
   | Scoped Scope.NameInfo SrcSpanInfo
+  deriving (Show)
 
 data Pin s = Pin Scope.Origin (STRef s (Maybe (TcProof s)))
 
 instance Show (Pin s) where
-  show (Pin origin ref) = show origin
+  show (Pin origin _ref) = show origin

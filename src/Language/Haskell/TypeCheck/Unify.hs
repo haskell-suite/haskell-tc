@@ -68,6 +68,12 @@ unifyFun ty = do
   unify ty (TcFun a b)
   return (a, b)
 
+unifyFun2 :: Rho s -> TI s (Sigma s, Sigma s, Rho s)
+unifyFun2 rho = do
+  (a_ty, tmp) <- unifyFun rho
+  (b_ty, ret) <- unifyFun tmp
+  return (a_ty, b_ty, ret)
+
 unifyFuns :: Int -> Rho s -> TI s ([Sigma s], Rho s)
 unifyFuns = worker []
   where

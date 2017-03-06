@@ -2,28 +2,25 @@
 {-# LANGUAGE RankNTypes                 #-}
 module Language.Haskell.TypeCheck.Monad where
 
-import           Control.Monad
 import           Control.Monad.ST
 import           Control.Monad.State
-import           Data.List
 import           Data.Map                          (Map)
 import qualified Data.Map                          as Map
 import           Data.Set                          (Set)
 import qualified Data.Set                          as Set
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
-import           Language.Haskell.Exts.Syntax      (Boxed (..), Name,
+import           Language.Haskell.Exts.Syntax      (Boxed (..), Name(..),
                                                     QName (..), SpecialCon (..),
                                                     TyVarBind (..), Type (..),
                                                     ann, Context(..), Asst(..), Module)
 
-import           Language.Haskell.Scope
+import           Language.Haskell.Scope as Scope
 import           Language.Haskell.TypeCheck.Proof
 import           Language.Haskell.TypeCheck.Types  hiding (Type (..))
 import qualified Language.Haskell.TypeCheck.Types  as T
 
 import           Debug.Trace
-import qualified Language.Haskell.TypeCheck.Pretty as P
 
 data TcEnv = TcEnv
   { tcEnvValues :: Map GlobalName T.Type
@@ -91,9 +88,10 @@ emptyTcState = TcState
 
 withRecursive :: [GlobalName] -> TI s a -> TI s a
 withRecursive rec action = do
-    modify $ \st -> st{tcStateRecursive = Set.fromList rec}
+    st <- get
+    modify $ \st -> st{tcStateRecursive = tcStateRecursive st `Set.union` Set.fromList rec}
     a <- action
-    modify $ \st -> st{tcStateRecursive = Set.empty, tcStateKnots = []}
+    modify $ \st -> st{tcStateRecursive = tcStateRecursive st, tcStateKnots = tcStateKnots st}
     return a
 
 isRecursive :: GlobalName -> TI s Bool
@@ -163,12 +161,24 @@ unpinAST = traverse unpin
         Nothing -> return $ Scoped nameinfo srcspan
         Just proof -> do
           zonked <- simplifyProof <$> zonkProof proof
-          if isTrivial zonked
+          if isTrivial zonked && not (isBinding nameinfo) && False
             then pure $ Scoped nameinfo srcspan
             else pure $ Coerced nameinfo srcspan zonked
 
+isBinding :: Scope.NameInfo -> Bool
+isBinding Scope.Binding{} = True
+isBinding _ = False
+
 expectResolvedPin :: Pin s -> TI s GlobalName
 expectResolvedPin (Pin (Origin (Resolved gname) _) _) = pure gname
+expectResolvedPin (Pin (Origin (Binding gname) _) _) = pure gname
+
+qnameToGlobalName :: QName (Pin s) -> TI s GlobalName
+qnameToGlobalName qname =
+  case qname of
+    Qual _src _mod name      -> expectResolvedPin (ann name)
+    UnQual _src name         -> expectResolvedPin (ann name)
+    Special _src _specialCon -> error "qnameToGlobalName: Special?"
 
 -- getCoercion :: SrcSpanInfo -> TI s (TcCoercion s)
 -- getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
@@ -245,9 +255,15 @@ zonkProof proof =
 
 tcVarFromName :: Name (Pin s) -> TcVar
 tcVarFromName name =
-    TcVar (getNameIdentifier name) src
+    TcVar ident src
   where
-    Pin (Origin (Resolved (GlobalName src _qname)) _) _ = ann name
+    src = case ann name of
+            Pin (Origin (Resolved (GlobalName src _qname)) _) _ -> src
+            Pin (Origin (Binding (GlobalName src _qname)) _) _ -> src
+    ident =
+      case name of
+        Symbol _ symbol -> symbol
+        Ident _ ident -> ident
 
 newTcVar :: TI s (TcMetaVar s)
 newTcVar = do
@@ -268,8 +284,11 @@ typeToTcType ty =
       TyVar _ name -> TcRef (tcVarFromName name)
       TyCon _ (Special _ UnitCon{}) ->
           TcTuple []
-      TyCon _ conName ->
-          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann conName
+      TyCon _ (UnQual _src name) ->
+          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann name
+          in TcCon qname
+      TyCon _ (Qual _src _mod name) ->
+          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann name
           in TcCon qname
       TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
       TyParen _ t -> typeToTcType t

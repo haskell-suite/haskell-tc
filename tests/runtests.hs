@@ -72,46 +72,28 @@ getTcInfo file = do
         msg
     ParseOk thisModule -> do
       let (env, errs, scoped) = resolve emptyResolveEnv thisModule
-          allResolved = nub $ foldMap getResolved scoped
-          getResolved (Origin (Scope.Resolved gname) loc) = [(loc, gname)]
-          getResolved _ = []
-          isDefinition (usageLoc, GlobalName definitionLoc _)= usageLoc == definitionLoc
-          (_definitions, usage) = partition isDefinition allResolved
-          definitions = nub [ gname | (usageLoc, gname) <- allResolved ]
-          defIndex = zip definitions [1..]
+          (typed, env') = typecheck emptyTcEnv scoped
 
-      let (typed, env') = typecheck emptyTcEnv scoped
-          allTyped = toList typed
+          allTyped = nub $ foldMap getTyped typed
+          getTyped (Coerced nameInfo src proof) = [(nameInfo, src, proof)]
+          getTyped _ = []
+
+          bindings = [ (src, proof) | (Scope.Binding _gname, src, proof) <- allTyped ]
+          usages = [ (gname, src, proof) | (Scope.Resolved gname, src, proof) <- allTyped ]
+
       return $ Right $ show $ Doc.vsep $
-        -- [ Doc.text "Bindings:"] ++
-        -- [ ppQualName qname <+> text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
-        --   ppLocation 2 fileContent srcspan
-        -- | Binding gname ty proof srcspan <- allTyped
-        -- , let GlobalName defLoc qname = gname
-        --       tyMsg = P.pretty ty
-        -- ] ++
+        [ Doc.text "Bindings:"] ++
+        [ text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
+          ppLocation 2 fileContent srcspan
+        | (srcspan, proof) <- bindings
+        , let tyMsg = P.pretty proof
+        ] ++
         [ Doc.empty, Doc.text "Proofs:"] ++
         [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
           ppLocation 2 fileContent srcspan
-        | Coerced _nameinfo srcspan proof  <- allTyped
-        , let tyMsg = P.pretty proof
-        ] ++
+        | (gname, srcspan, proof)  <- usages
+        , let tyMsg = P.pretty proof ] ++
         [Doc.empty]
-      -- tcEnv <- runTI emptyTcEnv (tiModule scoped)
-      -- return $ Right $ show $ Doc.vsep $
-      --   [ ppQualName qname <+> text "::" <+> tyMsg <> (case mbCoercion of
-      --       Just coercion -> Doc.char ',' <+> P.pretty coercion
-      --       Nothing -> Doc.empty) Doc.<$$>
-      --     ppLocation 2 fileContent usageLoc
-      --
-      --   | (usageLoc,gname@(GlobalName defLoc qname))  <- allResolved
-      --   , ty <- maybeToList (Map.lookup gname (tcEnvValues tcEnv))
-      --   , let tyMsg = P.pretty ty
-      --         isDefinition = usageLoc == defLoc
-      --         mbCoercion = Map.lookup usageLoc
-      --                           (tcEnvCoercions tcEnv)
-      --   , isDefinition || maybe False isInterestingCoercion mbCoercion ]
-      --   ++ [Doc.empty]
 
 ppGName :: SrcSpanInfo -> GlobalName -> Doc
 ppGName srcSpanInfo (GlobalName _defLoc (QualifiedName m ident))
