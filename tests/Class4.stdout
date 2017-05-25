@@ -1,0 +1,20 @@
+Bindings:
+:: ∀ v10 v9. .Show v10 ⇒ v10 →  v9 →  (String
+                                      ,v9)
+  [4mfn1 x y = (fn2 x, y)[0m
+  [4m  where[0m
+  [4m    fn2 x = show x[0m
+:: v10
+  fn1 [4mx[0m y = (fn2 x, y)
+:: v9
+  fn1 x [4my[0m = (fn2 x, y)
+:: ∀ v7. .Show v7 ⇒ v7 →  String
+      [4mfn2 x = show x[0m
+:: v7
+      fn2 [4mx[0m = show x
+
+Proofs:
+coercion: (∀ v7. .Show v7 ⇒ v7 →  String) @ v10
+  fn1 x y = ([4mfn2[0m x, y)
+coercion: (∀ a. .Show a ⇒ a →  String) @ v7
+      fn2 x = [4mshow[0m x
