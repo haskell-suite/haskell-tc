@@ -1,0 +1,17 @@
+Bindings:
+:: ∀ v2. v2 →  v2
+  [4mid x = x[0m
+:: v2
+  id [4mx[0m = x
+:: ∀ sk_3_a. Maybe sk_3_a →  sk_3_a
+  [4mfromJust mb =[0m
+  [4m  case mb of[0m
+  [4m    Just a -> id a[0m
+:: Maybe sk_3_a
+  fromJust [4mmb[0m =
+:: sk_3_a
+      Just [4ma[0m -> id a
+
+Proofs:
+coercion: (∀ v2. v2 →  v2) @ sk_3_a
+      Just a -> [4mid[0m a

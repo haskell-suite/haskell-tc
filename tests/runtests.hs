@@ -56,6 +56,9 @@ unitTests =
   , typeTest "Class3"
   , typeTest "Append"
   , typeTest "Map"
+  , typeTest "AbsAp1"
+  , typeTest "AbsAp2"
+  , typeTest "AbsAp3"
   ]
 
 --scopeTest :: String -> FilePath -> Test
