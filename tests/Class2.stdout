@@ -1,0 +1,21 @@
+Bindings:
+:: ∀ v13. v13 →  String
+  [4mfalse x = show False[0m
+:: v13
+  false [4mx[0m = show False
+:: ∀ v8. .Show v8 ⇒ (Bool →  v8) →  String
+  [4mfalseFn x = show (x False)[0m
+:: Bool →  v8
+  falseFn [4mx[0m = show (x False)
+:: ∀ v3. .Show v3 ⇒ v3 →  String
+  [4mshow' x = show x[0m
+:: v3
+  show' [4mx[0m = show x
+
+Proofs:
+coercion: (∀ a. .Show a ⇒ a →  String) @ Bool
+  false x = [4mshow[0m False
+coercion: (∀ a. .Show a ⇒ a →  String) @ v8
+  falseFn x = [4mshow[0m (x False)
+coercion: (∀ a. .Show a ⇒ a →  String) @ v3
+  show' x = [4mshow[0m x

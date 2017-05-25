@@ -14,6 +14,7 @@ import Language.Haskell.TypeCheck.SyntaxDirected
 import Language.Haskell.Exts
 
 import Control.Monad.ST
+import Control.Monad.Except
 import Control.Monad.State
 import qualified Data.Map as Map
 
@@ -23,8 +24,8 @@ Scan module, collect type signatures
 
 -}
 
-typecheck :: TcEnv -> Module Origin -> (Module Typed, TcEnv)
-typecheck env ast = runST (evalStateT (unTI f) st)
+typecheck :: TcEnv -> Module Origin -> Either TIError (Module Typed, TcEnv)
+typecheck env ast = runST (evalStateT (runExceptT (unTI f)) st)
   where
     st = emptyTcState
           { tcStateValues = Map.map toTcType (tcEnvValues env) }

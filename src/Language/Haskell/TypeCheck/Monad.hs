@@ -4,9 +4,11 @@ module Language.Haskell.TypeCheck.Monad where
 
 import           Control.Monad.ST
 import           Control.Monad.State
+import           Control.Monad.Except
 import           Data.Map                          (Map)
 import qualified Data.Map                          as Map
 import           Data.Set                          (Set)
+import Data.Maybe
 import qualified Data.Set                          as Set
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
@@ -22,6 +24,46 @@ import qualified Language.Haskell.TypeCheck.Types  as T
 
 import           Debug.Trace
 
+{-
+TcQual [] (TcIsIn Show a)
+class Show a
+
+TcQual [TcIsIn "Eq" a] (TcIsIn Ord a)
+class Eq a => Ord a
+
+TcQual [TcIsIn "Monad" m] (TcIsIn MArray a e m)]
+class Monad m => MArray a e m
+
+TcQual [TcIsIn "Ord" a, TcIsIn "Ord" b] (TcIsIn Ord (a,b))
+instance (Ord a, Ord b) => Ord (a, b)
+
+TcQual [] (TcIsIn Ord Char)
+instance Ord Char
+
+classes :: TcQual s (TcPred s)
+instances :: TcQual s (TcPred s)
+
+API:
+bySuper :: TcPred s -> [TcPred s]
+bySuper (TcIsIn "Ord" value) = [TcIsIn "Eq" value]
+bySuper (TcIsIn "MArray" a e m) = [TcIsIn "Monad" m]
+
+byInst :: TcPred s -> [TcPred s]
+byInst (TcIsIn "Ord" (fst, snd)) = [TcIsIn "Ord" fst, TcIsIn "Ord" snd]
+
+instance Class [Char]
+TcIsIn Class [a]
+
+matchInstance :: TcPred s -> TcPred s -> TI s (Maybe [(TyVar, TcType s)])
+
+preds :=> head
+subst <- match p head
+subst :: [(TyVar, TcType s)]
+map (applySubst subst) preds
+
+
+-}
+
 data TcEnv = TcEnv
   { tcEnvValues :: Map GlobalName T.Type
   }
@@ -29,11 +71,19 @@ data TcEnv = TcEnv
 emptyTcEnv :: TcEnv
 emptyTcEnv = TcEnv { tcEnvValues = Map.empty }
 
+data TIError
+  = UnificationError String
+  | ContextTooWeak
+  | MatchError
+  | GeneralError String
+    deriving (Show)
+
 data TcState s = TcState
     { -- Values such as 'length', 'Nothing', 'Just', etc
       tcStateValues     :: Map GlobalName (TcType s)
+    , tcStateClasses    :: [TcQual s (TcPred s)]
+    , tcStateInstances  :: [TcQual s (TcPred s)]
     , tcStateUnique     :: Int
-    , tcStateProofs     :: Map SrcSpanInfo (TcProof s)
     , tcStateRecursive  :: Set GlobalName
     -- ^ Set of recursive bindings in the current group.
     , tcStateKnots      :: [(GlobalName, Pin s)]
@@ -43,24 +93,32 @@ data TcState s = TcState
     -- FIXME: We want to use a Writer for the predicates.
     , tcStatePredicates :: [TcPred s]
     }
-newtype TI s a = TI { unTI :: StateT (TcState s) (ST s) a }
-    deriving ( Monad, Functor, Applicative, MonadState (TcState s) )
+newtype TI s a = TI { unTI :: ExceptT TIError (StateT (TcState s) (ST s)) a }
+    deriving ( Monad, Functor, Applicative, MonadState (TcState s)
+             , MonadError TIError )
 
 liftST :: ST s a -> TI s a
-liftST action = TI $ StateT $ \env -> do
+liftST action = TI $ ExceptT $ StateT $ \env -> do
   a <- action
-  return (a,env)
+  return $ (Right a,env)
+
+tiMaybe :: b -> (a -> TI s b) -> Maybe a -> TI s b
+tiMaybe def _ Nothing = pure def
+tiMaybe _ fn (Just a) = fn a
 
 debug :: String -> TI s ()
 debug str = trace str (return ())
+
+
 
 --type Infer a = a Origin -> TI (a Typed)
 
 emptyTcState :: TcState s
 emptyTcState = TcState
-    { tcStateValues   = Map.empty
+    { tcStateValues    = Map.empty
+    , tcStateClasses   = []
+    , tcStateInstances = []
     , tcStateUnique    = 0
-    , tcStateProofs = Map.empty
     , tcStateRecursive = Set.empty
     , tcStateKnots = []
     , tcStatePredicates = []
@@ -88,10 +146,10 @@ emptyTcState = TcState
 
 withRecursive :: [GlobalName] -> TI s a -> TI s a
 withRecursive rec action = do
-    st <- get
+    original <- get
     modify $ \st -> st{tcStateRecursive = tcStateRecursive st `Set.union` Set.fromList rec}
     a <- action
-    modify $ \st -> st{tcStateRecursive = tcStateRecursive st, tcStateKnots = tcStateKnots st}
+    modify $ \st -> st{tcStateRecursive = tcStateRecursive original}
     return a
 
 isRecursive :: GlobalName -> TI s Bool
@@ -161,7 +219,7 @@ unpinAST = traverse unpin
         Nothing -> return $ Scoped nameinfo srcspan
         Just proof -> do
           zonked <- simplifyProof <$> zonkProof proof
-          if isTrivial zonked && not (isBinding nameinfo) && False
+          if isTrivial zonked && not (isBinding nameinfo)
             then pure $ Scoped nameinfo srcspan
             else pure $ Coerced nameinfo srcspan zonked
 
@@ -180,47 +238,35 @@ qnameToGlobalName qname =
     UnQual _src name         -> expectResolvedPin (ann name)
     Special _src _specialCon -> error "qnameToGlobalName: Special?"
 
--- getCoercion :: SrcSpanInfo -> TI s (TcCoercion s)
--- getCoercion src = gets $ Map.findWithDefault id src . tcStateCoercions
+addClass :: TcQual s (TcPred s) -> TI s ()
+addClass classDef =
+  modify $ \st -> st{ tcStateClasses = classDef : tcStateClasses st }
 
--- setGlobal :: QualifiedName -> TcType -> TI ()
--- setGlobal gname scheme = modify $ \env ->
---     env{ tcEnvGlobals = Map.insert gname scheme (tcEnvGlobals env) }
+addInstance :: TcQual s (TcPred s) -> TI s ()
+addInstance instDef =
+  modify $ \st -> st{ tcStateInstances = instDef : tcStateInstances st }
 
--- findGlobal :: QualifiedName -> TI TcType
--- findGlobal gname = do
---     m <- gets tcEnvGlobals
---     case Map.lookup gname m of
---         Nothing -> error $ "Missing global: " ++ show gname
---         Just scheme -> return scheme
+-- ass "Ord" = ([TcIsIn "Eq" a], TcRef a)
+-- lookupClass "Monad" = ([TcIsIn "Applicative" m], TcRef m)
+-- lookupClass "Show" = ([], TcRef a)
+lookupClass :: GlobalName -> TI s ([TcPred s], TcType s)
+lookupClass className = do
+  clss <- gets tcStateClasses
+  case [ (constraints, ty)
+       | TcQual constraints (TcIsIn thisClassName ty) <- clss
+       , thisClassName == className ] of
+    [ ret ] -> return ret
+    _       -> error $ "Class not found: " ++ show className
 
--- freshInst :: TcType s -> TI s (TcQual s (TcType s), Coercion s)
--- freshInst (TcForall tyvars (TcQual preds t0)) = do
---     refs <- replicateM (length tyvars) newTcVar
---     let subst = zip tyvars refs
---         instPred (TcIsIn className ty) =
---             TcIsIn className (instantiate ty)
---         instantiate ty =
---             case ty of
---                 TcForall{} -> error "freshInst"
---                 TcFun a b -> TcFun (instantiate a) (instantiate b)
---                 TcApp a b -> TcApp (instantiate a) (instantiate b)
---                 TcRef v ->
---                     case lookup v subst of
---                         Nothing -> TcRef v
---                         Just ref -> TcMetaVar ref
---                 TcCon{} -> ty
---                 TcMetaVar{} -> ty -- FIXME: Is this an error?
---                 TcUnboxedTuple tys -> TcUnboxedTuple (map instantiate tys)
---                 TcTuple tys -> TcTuple (map instantiate tys)
---                 TcList elt -> TcList (instantiate elt)
---     return (map instPred preds `TcQual` instantiate t0, CoerceAp $ map TcMetaVar refs)
--- freshInst ty = pure (TcQual [] ty, CoerceId )
-
-
--- getMetaTyVars :: TcType s -> TI s [TcMetaVar s]
--- getMetaTyVars = metaVariables
-
+-- lookupInstances "Ord" = [ ([], Int)
+--                         , ([TcIsIn "Ord" a], Maybe a)
+--                         , ([TcIsIn "Ord" a, TcIsIn "Ord" b], (a, b)) ]
+lookupInstances :: GlobalName -> TI s [([TcPred s], TcType s)]
+lookupInstances className = do
+  insts <- gets tcStateInstances
+  return [ (constraints, ty)
+         | TcQual constraints (TcIsIn thisClassName ty) <- insts
+         , thisClassName == className ]
 
 zonkType :: TcType s -> TI s T.Type
 zonkType ty =
@@ -271,46 +317,42 @@ newTcVar = do
     ref <- liftST $ newSTRef Nothing
     return $ TcMetaRef ("v"++show u) ref
 
-typeToTcType :: Type (Pin s) -> TcType s
+typeToTcType :: Type (Pin s) -> TI s (TcType s)
 typeToTcType ty =
     case ty of
-      TyForall _ (Just tybinds) mbContext ty' ->
+      TyForall _ mbTybinds mbContext ty' ->
         TcForall
           [ case bind of
               KindedVar _ name _kind -> tcVarFromName name
-              UnkindedVar _ name -> tcVarFromName name | bind <- tybinds ]
-          (TcQual (maybe [] contextToPredicates mbContext) (typeToTcType ty'))
-      TyFun _ a b -> TcFun (typeToTcType a) (typeToTcType b)
-      TyVar _ name -> TcRef (tcVarFromName name)
+              UnkindedVar _ name -> tcVarFromName name | bind <- fromMaybe [] mbTybinds ]
+          <$> (TcQual <$> tiMaybe [] contextToPredicates mbContext <*> typeToTcType ty')
+      TyFun _ a b -> TcFun <$> typeToTcType a <*> typeToTcType b
+      TyVar _ name -> pure $ TcRef (tcVarFromName name)
       TyCon _ (Special _ UnitCon{}) ->
-          TcTuple []
-      TyCon _ (UnQual _src name) ->
-          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann name
-          in TcCon qname
-      TyCon _ (Qual _src _mod name) ->
-          let Pin (Origin (Resolved (GlobalName _ qname)) _) _ = ann name
-          in TcCon qname
-      TyApp _ a b -> TcApp (typeToTcType a) (typeToTcType b)
+          pure $ TcTuple []
+      TyCon _ qname -> do
+        GlobalName _ qname <- qnameToGlobalName qname
+        pure $ TcCon qname
+      TyApp _ a b -> TcApp <$> typeToTcType a <*> typeToTcType b
       TyParen _ t -> typeToTcType t
-      TyTuple _ Unboxed tys -> TcUnboxedTuple (map typeToTcType tys)
-      TyTuple _ Boxed tys -> TcTuple (map typeToTcType tys)
-      TyList _ elt -> TcList (typeToTcType elt)
+      TyTuple _ Unboxed tys -> TcUnboxedTuple <$> mapM typeToTcType tys
+      TyTuple _ Boxed tys -> TcTuple <$> mapM typeToTcType tys
+      TyList _ elt -> TcList <$> typeToTcType elt
       _ -> error $ "typeToTcType: " ++ show ty
 
-contextToPredicates :: Context (Pin s) -> [TcPred s]
+contextToPredicates :: Context (Pin s) -> TI s [TcPred s]
 contextToPredicates ctx =
   case ctx of
-    CxEmpty{} -> []
-    CxSingle _origin asst -> [assertionToPredicate asst]
-    CxTuple _origin assts -> map assertionToPredicate assts
+    CxEmpty{} -> pure []
+    CxSingle _origin asst -> pure <$> assertionToPredicate asst
+    CxTuple _origin assts -> mapM assertionToPredicate assts
 
-assertionToPredicate :: Asst (Pin s) -> TcPred s
+assertionToPredicate :: Asst (Pin s) -> TI s (TcPred s)
 assertionToPredicate asst =
   case asst of
     ParenA _ sub -> assertionToPredicate sub
     ClassA _ qname [ty] ->
-      let Pin (Origin (Resolved gname) _) _ = ann qname in
-      TcIsIn gname (typeToTcType ty)
+      TcIsIn <$> qnameToGlobalName qname <*> typeToTcType ty
     ClassA _ qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
     _ -> error "assertionToPredicate: unsupported assertion"
 

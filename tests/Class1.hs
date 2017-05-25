@@ -7,3 +7,5 @@ class Show a where
 
 class Monad m where
   return :: a -> m a
+
+list x = return [x]

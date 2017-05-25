@@ -3,9 +3,11 @@ module Language.Haskell.TypeCheck.SyntaxDirected where
 
 
 import           Control.Monad
+import           Control.Monad.Except
 import           Data.Graph                             (flattenSCC,
                                                          stronglyConnComp)
 import           Data.List
+import           Data.Maybe
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Syntax
@@ -13,6 +15,7 @@ import           Language.Haskell.Exts.Syntax
 import           Language.Haskell.Scope                 (GlobalName (..),
                                                          NameInfo (..),
                                                          Origin (..))
+import           Language.Haskell.TypeCheck.Debug
 import           Language.Haskell.TypeCheck.Misc
 import           Language.Haskell.TypeCheck.Monad
 import           Language.Haskell.TypeCheck.Proof
@@ -21,7 +24,7 @@ import           Language.Haskell.TypeCheck.Types       hiding (Type (..),
                                                          Typed (..))
 import           Language.Haskell.TypeCheck.Unify
 
-import qualified Language.Haskell.TypeCheck.Pretty as Doc
+import qualified Language.Haskell.TypeCheck.Pretty      as Doc
 
 -- tiGuardedAlts :: GuardedAlts Origin -> TI TcType
 -- tiGuardedAlts galts =
@@ -153,12 +156,13 @@ tiExp expr exp_ty =
     Con _ (Special pin Cons{}) -> do
       coercion <- instSigma consSigma exp_ty
       setProof pin coercion consSigma
-    Con _ conName -> do
-      let pin = ann conName
-      gname <- expectResolvedPin pin
-      tySig <- findAssumption gname
-      coercion <- instSigma tySig exp_ty
-      setProof pin coercion tySig
+    Con _ conName -> tiQName conName exp_ty
+    -- Con _ conName -> do
+    --   let pin = ann conName
+    --   gname <- qnameToGlobalName conName
+    --   tySig <- findAssumption gname
+    --   coercion <- instSigma tySig exp_ty
+    --   setProof pin coercion tySig
     InfixApp _ a (QConOp _ qname) b -> do
       fnTy <- inferRho (tiQName qname)
       (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
@@ -213,6 +217,9 @@ tiExp expr exp_ty =
     Tuple _ Unboxed args | Infer ref <- exp_ty -> do
       argTys <- forM args $ inferRho . tiExp
       liftST $ writeSTRef ref (TcUnboxedTuple argTys)
+    Tuple _ Boxed args | Check rho <- exp_ty -> do
+      argTys <- unifyTuple (length args) rho
+      forM_ (zip argTys args) $ \(argTy,arg) -> checkRho (tiExp arg) argTy
     Let _ binds subExpr -> do
       tiBinds binds
       tiExp subExpr exp_ty
@@ -352,19 +359,36 @@ declHeadType dhead =
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
     tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
 
+instHeadType :: InstHead (Pin s) -> TI s ([TcType s], GlobalName)
+instHeadType ihead =
+  case ihead of
+    IHCon _ qname -> do
+      gname <- qnameToGlobalName qname
+      return ([], gname)
+    IHInfix _ ty qname -> do
+      ty' <- typeToTcType ty
+      gname <- qnameToGlobalName qname
+      return ([ty'], gname)
+    IHParen _ ih -> instHeadType ih
+    IHApp _ ih ty -> do
+      ty' <- typeToTcType ty
+      (tys, gname) <- instHeadType ih
+      return (tys ++ [ty'], gname)
+
 tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (GlobalName, [TcType s])
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
             let Pin (Origin (Binding gname) _) _ = ann con
             -- setCoercion (globalNameSrcSpanInfo gname) (TcProofAbs tvars)
-            return (gname, map typeToTcType tys)
+            tys' <- mapM typeToTcType tys
+            return (gname, tys')
         RecDecl _ con fields -> do
-            let conTys = concat
-                    [ replicate (length names) (typeToTcType ty)
+            conTys <- concat <$> sequence
+                    [ replicateM (length names) (typeToTcType ty)
                     | FieldDecl _ names ty <- fields ]
             forM_ fields $ \(FieldDecl _ names fTy) -> do
-                let ty = TcFun dty (typeToTcType fTy)
+                ty <- TcFun dty <$> typeToTcType fTy
                 forM_ names $ \name -> do
                     gname <- expectResolvedPin (ann name)
                     setAssumption gname (TcForall tvars $ TcQual [] ty)
@@ -404,7 +428,7 @@ tiPrepareClassDecl className [tyVar] decl =
       ClsDecl _ (TypeSig _ names ty) -> do
         forM_ names $ \name -> do
           gname <- expectResolvedPin (ann name)
-          let ty' = typeToTcType ty
+          ty' <- typeToTcType ty
           free <- getFreeTyVars [ty']
           setAssumption gname
             (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
@@ -428,26 +452,63 @@ tiPrepareDecl decl =
         TypeDecl{} -> return ()
         ForImp _ _conv _safety _mbExternal name ty -> do
             gname <- expectResolvedPin (ann name)
-            setAssumption gname (typeToTcType ty)
+            setAssumption gname =<< typeToTcType ty
         TypeSig _ names ty ->
             forM_ names $ \name -> do
                 gname <- expectResolvedPin (ann name)
-                setAssumption gname =<< explicitTcForall (typeToTcType ty)
+                setAssumption gname =<< explicitTcForall =<< typeToTcType ty
                 --setCoercion (nameIdentifier name)
                 --    (CoerceAbs (freeTcVariables $ typeToTcType ty))
-        ClassDecl _ _cxt dhead _funDeps (Just decls) -> do
-          let (tcvars, className) = declHeadType dhead
-          forM_ decls $ \clsDecl ->
-            tiPrepareClassDecl className tcvars clsDecl
+        ClassDecl _ mbCtx dhead _funDeps mbDecls -> do
+          let ([tcvar], className) = declHeadType dhead
+          constraints <- tiMaybe [] contextToPredicates mbCtx
+          let classDef = TcQual constraints (TcIsIn className (TcRef tcvar))
+          addClass classDef
+
+          forM_ (fromMaybe [] mbDecls) $ \clsDecl ->
+            tiPrepareClassDecl className [tcvar] clsDecl
+        InstDecl _ _mbOverlap instRule _mbInstDecls -> do
+          tiPrepareInstDecl instRule
         _ -> error $ "tiPrepareDecl: " ++ show decl
 
+tiPrepareInstDecl :: InstRule (Pin s) -> TI s ()
+tiPrepareInstDecl (IParen _ instRule) = tiPrepareInstDecl instRule
+tiPrepareInstDecl (IRule _ _binds mbCtx instHead) = do
+  constraints <- tiMaybe [] contextToPredicates mbCtx
+  ([ty], className) <- instHeadType instHead
+  let instDef = TcQual constraints (TcIsIn className ty)
+  addInstance instDef
+
+
+{-
+Story about predicates:
+Split type signature into a rho type and a list of starting predicates.
+Get list of predicates we got from type-checking.
+Remove predicates that are entailed by our starting predicates.
+Simplify predicates.
+Defer predicates that refer to outer meta variables.
+If any predicates are left using skolem variables:
+  Context is too weak: Variable needed constraint which couldn't be found.
+  Example: fn :: a -> String; fn x = show x
+If any predicates are left using meta variables:
+  Example: fn x = show . read
+-}
 tiExpl :: (Decl (Pin s), GlobalName) -> TI s ()
 tiExpl (decl, binder) = do
+  setPredicates []
   sigma <- findAssumption binder
   -- Hm, we need to do something with the 'tvs' but I can't see what.
-  (tvs, rho, prenexToSigma) <- skolemize sigma
+  (tvs, preds, rho, prenexToSigma) <- skolemize sigma
+  -- debug $ "tiExpl: " ++ show (Doc.pretty binder) ++ " :: " ++ show (Doc.pretty rho)
+  -- debug $ "tiExpl: " ++ "Before: " ++ show (Doc.pretty preds)
   checkRho (tiDecl decl) rho
-  setProof (ann decl) (prenexToSigma . tcProofAbs tvs) rho
+  afterPreds <- filterM (fmap not . entail preds) =<< mapM lowerPredMetaVars =<< getPredicates
+  -- debug $ "tiExpl: " ++ "After: " ++ show (Doc.pretty afterPreds)
+  outer_meta <- getFreeMetaVariables
+  rs <- simplifyAndDeferPredicates outer_meta afterPreds
+  -- debug $ "tiExpl: " ++ "Kept: " ++ show (Doc.pretty rs)
+  unless (null rs) $ throwError ContextTooWeak
+  setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
 
 {-
 Predicates:
@@ -459,24 +520,40 @@ Predicates:
 -}
 tiDecls :: [(Decl (Pin s), GlobalName)] -> TI s ()
 tiDecls decls = withRecursive thisBindGroup $ do
+    -- debug $ "Bind group: " ++ dshow False (map snd decls)
     outer_meta <- getFreeMetaVariables
     forM_ decls $ \(_decl, binder) -> do
         ty <- TcMetaVar <$> newTcVar
         setAssumption binder ty
     forM_ decls $ \(decl, binder) -> do
         ty <- findAssumption binder
+        -- debug_ty <- resolveMetaVars ty
+        -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_ty) ++ " (start)"
         -- invariant: ty is Rho, not Sigma.
         checkRho (tiDecl decl) ty
+        -- debug_ty <- resolveMetaVars ty
+        -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_ty) ++ " (end)"
 
     _preds <- getPredicates
-    -- forM_ preds $ debug . show . P.pretty
+    -- forM_ _preds $ debug . show . Doc.pretty
 
     knots <- getKnots
+    outer_meta' <- getMetaTyVars $ map TcMetaVar outer_meta
+
+    afterPreds <- mapM lowerPredMetaVars =<< getPredicates
+    -- debug $ "tiDecls: " ++ "Outer: " ++ show (Doc.pretty outer_meta')
+    -- debug $ "tiDecls: " ++ "After: " ++ show (Doc.pretty afterPreds)
+    rs <- simplifyAndDeferPredicates outer_meta' =<< reduce afterPreds
+    -- debug $ "tiDecls: " ++ "Keep:  " ++ show (Doc.pretty rs)
+
     forM_ decls $ \(decl, binder) -> do
         ty <- findAssumption binder
-        (gTy, tvs) <- quantify outer_meta ty
-        setProof (ann decl) (tcProofAbs tvs) ty
-        debug $ show $ Doc.pretty gTy
+        (gTy, tvs) <- quantify outer_meta' rs ty
+        -- debug_gTy <- resolveMetaVars gTy
+        -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_gTy) ++ " (knot)"
+        -- setProof (ann decl) (flip tcProofAp (map TcRef tvs) . tcProofAbs tvs) gTy
+        setProof (ann decl) id gTy
+        -- debug $ show $ Doc.pretty gTy
         setAssumption binder gTy
 
         forM_ knots $ \(thisBinder, usageLoc) ->
@@ -484,7 +561,9 @@ tiDecls decls = withRecursive thisBindGroup $ do
             setProof usageLoc (`TcProofAp` map TcRef tvs) gTy
 
     decl_meta <- getMetaTyVars =<< mapM (findAssumption.snd) decls
-    let meta = decl_meta \\ outer_meta
+    -- debug $ "Bind group end: " ++ show decl_meta
+    -- debug $ "              : " ++ show outer_meta'
+    let meta = decl_meta \\ outer_meta'
         tvs = map toTcVar meta
     forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
   where
@@ -553,6 +632,8 @@ declFreeVariables decl =
             Paren _ e -> freeExp e
             Lambda _ _pats e -> freeExp e
             Do _ stmts -> concatMap freeStmt stmts
+            Tuple _ _ exprs -> concatMap freeExp exprs
+            List _ exprs -> concatMap freeExp exprs
             _ -> error $ "freeExp: " ++ show expr
     freeStmt stmt =
         case stmt of
@@ -591,6 +672,7 @@ declBinders decl =
         TypeDecl{} -> []
         TypeSig{} -> []
         ClassDecl{} -> []
+        InstDecl{} -> []
         _ -> error $ "declBinders: " ++ show decl
 
 patBinders :: Pat (Pin s) -> [GlobalName]

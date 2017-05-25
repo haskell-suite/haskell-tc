@@ -50,7 +50,13 @@ main = do
   defaultMain unitTests
 
 unitTests =
-  [ typeTest "Basic1" ]
+  [ typeTest "Basic1"
+  , typeTest "Class1"
+  , typeTest "Class2"
+  , typeTest "Class3"
+  , typeTest "Append"
+  , typeTest "Map"
+  ]
 
 --scopeTest :: String -> FilePath -> Test
 typeTest name = testCase name $ do
@@ -72,28 +78,29 @@ getTcInfo file = do
         msg
     ParseOk thisModule -> do
       let (env, errs, scoped) = resolve emptyResolveEnv thisModule
-          (typed, env') = typecheck emptyTcEnv scoped
+      case typecheck emptyTcEnv scoped of
+        Left err -> error (show err)
+        Right (typed, env') -> do
+          let allTyped = nub $ foldMap getTyped typed
+              getTyped (Coerced nameInfo src proof) = [(nameInfo, src, proof)]
+              getTyped _ = []
 
-          allTyped = nub $ foldMap getTyped typed
-          getTyped (Coerced nameInfo src proof) = [(nameInfo, src, proof)]
-          getTyped _ = []
+              bindings = [ (src, proof) | (Scope.Binding _gname, src, proof) <- allTyped ]
+              usages = [ (gname, src, proof) | (Scope.Resolved gname, src, proof) <- allTyped ]
 
-          bindings = [ (src, proof) | (Scope.Binding _gname, src, proof) <- allTyped ]
-          usages = [ (gname, src, proof) | (Scope.Resolved gname, src, proof) <- allTyped ]
-
-      return $ Right $ show $ Doc.vsep $
-        [ Doc.text "Bindings:"] ++
-        [ text "::" <+> tyMsg <> Doc.comma <+> P.pretty proof Doc.<$$>
-          ppLocation 2 fileContent srcspan
-        | (srcspan, proof) <- bindings
-        , let tyMsg = P.pretty proof
-        ] ++
-        [ Doc.empty, Doc.text "Proofs:"] ++
-        [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
-          ppLocation 2 fileContent srcspan
-        | (gname, srcspan, proof)  <- usages
-        , let tyMsg = P.pretty proof ] ++
-        [Doc.empty]
+          return $ Right $ show $ Doc.vsep $
+            [ Doc.text "Bindings:"] ++
+            [ text "::" <+> tyMsg Doc.<$$>
+              ppLocation 2 fileContent srcspan
+            | (srcspan, proof) <- bindings
+            , let tyMsg = P.pretty proof
+            ] ++
+            [ Doc.empty, Doc.text "Proofs:"] ++
+            [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
+              ppLocation 2 fileContent srcspan
+            | (gname, srcspan, proof)  <- usages
+            , let tyMsg = P.pretty proof ] ++
+            [Doc.empty]
 
 ppGName :: SrcSpanInfo -> GlobalName -> Doc
 ppGName srcSpanInfo (GlobalName _defLoc (QualifiedName m ident))

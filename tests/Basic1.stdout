@@ -1,0 +1,9 @@
+Bindings:
+:: ∀ v3. (v3 →  v3) →  v3 →  v3
+  [4mtwice fn v = fn (fn v)[0m
+:: v3 →  v3
+  twice [4mfn[0m v = fn (fn v)
+:: v3
+  twice fn [4mv[0m = fn (fn v)
+
+Proofs:

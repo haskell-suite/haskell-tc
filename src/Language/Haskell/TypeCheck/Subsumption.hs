@@ -5,6 +5,7 @@ import Language.Haskell.TypeCheck.Monad
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.Unify
 import Language.Haskell.TypeCheck.Proof
+import Language.Haskell.TypeCheck.Debug
 
 import Control.Monad
 import Data.List
@@ -19,12 +20,12 @@ instantiate (TcForall [] (TcQual [] ty)) = do
   -- debug $ "Instatiate: Silly forall"
   instantiate ty
 instantiate orig@(TcForall tvs (TcQual preds ty)) = do
-  tvs' <- replicateM (length tvs) newTcVar
+  tvs' <- map TcMetaVar <$> replicateM (length tvs) newTcVar
   ty' <- substituteTyVars (zip tvs tvs') ty
   preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs tvs'))
   -- debug $ "Instantiate: " ++ show (P.pretty orig) ++ " => " ++ show (P.pretty ty')
   addPredicates preds'
-  return (ty', \x -> tcProofAp x (map TcMetaVar tvs'))
+  return (ty', \x -> tcProofAp x tvs')
 -- instantiate TcForall{} = error "instantiate: Predicate not supported yet."
 instantiate tau = return (tau, id)
 
@@ -34,27 +35,39 @@ skolemize sigma = /\a.rho + f::/\a.rho -> sigma
 Skolemize hoists all forall's to the top-level and returns a coercion function
 from the new sigma type to the old sigma type.
 -}
-skolemize :: Sigma s -> TI s ([TcVar], Rho s, TcCoercion s)
-skolemize (TcForall tvs (TcQual [] ty)) = do
+-- FIXME: Return the predicates as well?
+skolemize :: Sigma s -> TI s ([TcVar], [TcPred s], Rho s, TcCoercion s)
+skolemize (TcForall tvs (TcQual preds ty)) = do
   sks <- mapM newSkolemVar tvs
-  (sks2, ty', f) <- skolemize =<< substituteSkolem (zip tvs sks) ty
-  return (sks ++ sks2, ty', \x -> tcProofAbs sks $ f (x `tcProofAp` map TcRef sks))
+  let skTys = map TcRef sks
+  (sks2, preds2, ty', f) <- skolemize =<< substituteTyVars (zip tvs skTys) ty
+  preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs skTys))
+  return (sks ++ sks2, preds' ++ preds2, ty', \x -> tcProofAbs sks $ f (x `tcProofAp` skTys))
 skolemize (TcFun arg_ty res_ty) = do
-  (sks, res_ty', f) <- skolemize res_ty
+  (sks, preds, res_ty', f) <- skolemize res_ty
   u <- newUnique
-  return (sks, TcFun arg_ty res_ty', \x -> tcProofLam u arg_ty $ f $ tcProofAbs sks $ ((x `tcProofAp` map TcRef sks) `TcProofPAp` TcProofVar u))
+  return ( sks, preds, TcFun arg_ty res_ty'
+         , \x -> tcProofLam u arg_ty $ f $
+                 tcProofAbs sks $ ((x `tcProofAp` map TcRef sks) `TcProofPAp` TcProofVar u))
 skolemize ty =
-  return ([], ty, id)
+  return ([], [], ty, id)
 
 -- quantify (MetaRef "a" `TcFun` MetaRef "a") = TcForall [a] (a -> a)
-quantify :: [TcMetaVar s] -> Rho s -> TI s (Sigma s, [TcVar])
-quantify env_tvs rho = do
+quantify :: [TcMetaVar s] -> [TcPred s] -> Rho s -> TI s (Sigma s, [TcVar])
+quantify env_tvs predicates rho = do
+    -- debug $ "Quantify: " ++ show env_tvs
+    -- env_tvs' <- getMetaTyVars $ map TcMetaVar env_tvs
+    -- debug $ "        : " ++ show env_tvs'
     rho_tvs <- getMetaTyVars [rho]
+    -- debug $ "        : " ++ show rho_tvs
     let meta = rho_tvs \\ env_tvs
         tvs = map toTcVar meta
+    -- debug $ "        : " ++ show meta
+    -- rho' <- substituteMetaVars (zip meta tvs) rho
     -- forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
-    return (TcForall tvs (TcQual [] rho), tvs)
+    return (TcForall tvs (TcQual predicates rho), tvs)
   where
+    -- toTcVar n = TcVar ("t"++show n) []
     toTcVar (TcMetaRef name _) = TcVar name []
 
 
@@ -84,7 +97,7 @@ inferRho action = do
 checkSigma :: Pin s -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma pin action sigma = do
   -- debug $ "CheckSigma: " ++ show (P.pretty sigma)
-  (skol_tvs, rho, p) <- skolemize sigma
+  (skol_tvs, _preds, rho, p) <- skolemize sigma
   checkRho action rho
   -- env_tys <- getEnvTypes
   -- esc_tvs <- getFreeTyVars (sigma : env_tys)
@@ -99,7 +112,7 @@ checkSigma pin action sigma = do
 subsCheck :: TcType s -> TcType s -> TI s (TcCoercion s)
 subsCheck sigma1 sigma2 = do
   -- debug $ "subsCheck: " ++ show (P.pretty sigma1) ++ " >> " ++ show (P.pretty sigma2)
-  (skol_tvs, rho2, forallrho2ToSigma2) <- skolemize sigma2
+  (skol_tvs, _preds, rho2, forallrho2ToSigma2) <- skolemize sigma2
   sigma1ToRho2 <- subsCheckRho sigma1 rho2
   esc_tvs <- getFreeTyVars [sigma1, sigma2]
   let bad_tvs = filter (`elem` esc_tvs) skol_tvs

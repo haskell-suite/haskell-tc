@@ -1,0 +1,20 @@
+Bindings:
+:: ∀ v6. List v6 →  List v6 →  List v6
+  [4mappend a b =[0m
+  [4m  case a of[0m
+  [4m    Nil       -> b[0m
+  [4m    Cons x xs -> Cons x (append xs b)[0m
+:: List v6
+  append [4ma[0m b =
+:: List v6
+  append a [4mb[0m =
+:: v6
+      Cons [4mx[0m xs -> Cons x (append xs b)
+:: List v6
+      Cons x [4mxs[0m -> Cons x (append xs b)
+
+Proofs:
+coercion: (∀ a. a →  List a →  List a) @ v6
+      Cons x xs -> [4mCons[0m x (append xs b)
+coercion: (∀ v6. List v6 →  List v6 →  List v6) @ v6
+      Cons x xs -> Cons x ([4mappend[0m xs b)

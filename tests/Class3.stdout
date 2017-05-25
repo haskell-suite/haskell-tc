@@ -1,0 +1,18 @@
+Bindings:
+:: ∀ sk_21_a. .Super sk_21_a ⇒ sk_21_a →  String
+  [4msuper x = super x[0m
+:: sk_21_a
+  super [4mx[0m = super x
+:: ∀ v5 v6. (.Super v6, .Super v5) ⇒ v5 →  v6 →  String
+  [4mbyInst a b = super (a,b)[0m
+:: v5
+  byInst [4ma[0m b = super (a,b)
+:: v6
+  byInst a [4mb[0m = super (a,b)
+
+Proofs:
+coercion: (∀ a. .Super a ⇒ a →  String) @ sk_21_a
+  super x = [4msuper[0m x
+coercion: (∀ a. .Super a ⇒ a →  String) @ (v5
+                                          ,v6)
+  byInst a b = [4msuper[0m (a,b)

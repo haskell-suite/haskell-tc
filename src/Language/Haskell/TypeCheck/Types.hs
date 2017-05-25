@@ -1,14 +1,17 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Haskell.TypeCheck.Types where
 
+import           Control.Monad.ST
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
 import qualified Language.Haskell.TypeCheck.Pretty as P
+import           System.IO.Unsafe
+import           Control.Monad.ST.Unsafe
 import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
 
-import           Language.Haskell.Scope            (GlobalName (..),
-                                                    QualifiedName (..), Location)
-import qualified Language.Haskell.Scope as Scope
+import           Language.Haskell.Scope            (GlobalName (..), Location,
+                                                    QualifiedName (..))
+import qualified Language.Haskell.Scope            as Scope
 
 type SkolemRef = Int
 
@@ -101,6 +104,7 @@ data TcProof s
   | TcProofSrc (TcType s)
   | TcProofPAp (TcProof s) (TcProof s)
   | TcProofVar Int
+  deriving (Show)
 
 type Coercion = Proof -> Proof
 data Proof
@@ -155,15 +159,18 @@ instance P.Pretty (TcType s) where
 instance P.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident
 
+unsafePerformST :: ST s a -> a
+unsafePerformST = unsafePerformIO . unsafeSTToIO
+
 instance P.Pretty (TcMetaVar s) where
-    -- prettyPrec p (TcMetaRef ident ref) =
-    --     -- Doc.parens (Doc.text ident) Doc.<>
-    --     unsafePerformIO (do
-    --     mbTy <- readIORef ref
-    --     case mbTy of
-    --         Just ty -> return $ P.prettyPrec p ty
-    --         Nothing -> return $ Doc.blue (Doc.text ident))
-    pretty (TcMetaRef ident _) = Doc.blue (Doc.text ident)
+    prettyPrec p (TcMetaRef ident ref) =
+        -- Doc.parens (Doc.text ident) Doc.<>
+        unsafePerformST (do
+        mbTy <- readSTRef ref
+        case mbTy of
+            Just ty -> return $ Doc.blue (Doc.text ident) Doc.<> Doc.angles (P.prettyPrec p ty)
+            Nothing -> return $ Doc.red (Doc.text ident))
+    -- pretty (TcMetaRef ident _) = Doc.red (Doc.text ident)
 
 instance P.Pretty t => P.Pretty (TcQual s t) where
     prettyPrec p (TcQual [] t) = P.prettyPrec p t

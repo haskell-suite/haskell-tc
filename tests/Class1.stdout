@@ -1,0 +1,9 @@
+Bindings:
+:: ∀ v3 v5. .Monad v3 ⇒ v5 →  v3 [v5]
+  [4mlist x = return [x][0m
+:: v5
+  list [4mx[0m = return [x]
+
+Proofs:
+coercion: (∀ m a. .Monad m ⇒ a →  m a) @ v3 [v5]
+  list x = [4mreturn[0m [x]

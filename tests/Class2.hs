@@ -1,4 +1,4 @@
-module Class1 where
+module Class2 where
 
 data String
 data Bool = True | False
@@ -6,7 +6,10 @@ data Bool = True | False
 class Show a where
   show :: a -> String
 
+instance Show Bool
 
-false = show False
+false x = show False
 
-show' = show
+falseFn x = show (x False)
+
+show' x = show x

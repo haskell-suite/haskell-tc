@@ -1,0 +1,22 @@
+Bindings:
+:: ∀ sk_0_a sk_1_b. (sk_0_a →  sk_1_b) →  List sk_0_a →  List sk_1_b
+  [4mmap f lst =[0m
+  [4m  case lst of[0m
+  [4m    Nil -> Nil[0m
+  [4m    Cons x xs -> Cons (f x) (map f xs)[0m
+:: sk_0_a →  sk_1_b
+  map [4mf[0m lst =
+:: List sk_0_a
+  map f [4mlst[0m =
+:: sk_0_a
+      Cons [4mx[0m xs -> Cons (f x) (map f xs)
+:: List sk_0_a
+      Cons x [4mxs[0m -> Cons (f x) (map f xs)
+
+Proofs:
+coercion: (∀ a. List a) @ sk_1_b
+      Nil -> [4mNil[0m
+coercion: (∀ a. a →  List a →  List a) @ sk_1_b
+      Cons x xs -> [4mCons[0m (f x) (map f xs)
+coercion: (∀ a b. (a →  b) →  List a →  List b) @ sk_0_a sk_1_b
+      Cons x xs -> Cons (f x) ([4mmap[0m f xs)
