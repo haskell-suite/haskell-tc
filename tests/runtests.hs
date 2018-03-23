@@ -8,7 +8,7 @@ import qualified Data.Map                          as Map
 import           Data.Maybe                        (fromMaybe, maybeToList)
 import           Data.Maybe                        (isJust)
 import           Language.Haskell.Exts
-import           Language.Haskell.Scope            (GlobalName (..),
+import           Language.Haskell.Scope            (Entity (..),
                                                     Origin (..),
                                                     QualifiedName (..),
                                                     emptyResolveEnv, resolve)
@@ -107,8 +107,8 @@ getTcInfo file = do
             , let tyMsg = P.pretty proof ] ++
             [Doc.empty]
 
-ppGName :: SrcSpanInfo -> GlobalName -> Doc
-ppGName srcSpanInfo (GlobalName _defLoc (QualifiedName m ident))
+ppGName :: SrcSpanInfo -> Entity -> Doc
+ppGName srcSpanInfo Entity{entityName = QualifiedName m ident}
   | beginLine == endLine =
     Doc.pretty beginLine <> Doc.text ":" <> Doc.pretty beginColumn <>
     Doc.text "-" <> Doc.pretty endColumn <+>
