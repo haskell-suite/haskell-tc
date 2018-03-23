@@ -1,6 +1,6 @@
 module Language.Haskell.TypeCheck.Misc where
 
-import           Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars, unify)
+import           Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
 import           Language.Haskell.TypeCheck.Types
 import           Language.Haskell.TypeCheck.Proof
 import           Language.Haskell.Scope
@@ -57,7 +57,7 @@ getEnvTypes = do
   m <- gets tcStateValues
   return (Map.elems m)
 
-getZonkedTypes :: TI s (Map GlobalName Type)
+getZonkedTypes :: TI s (Map Entity Type)
 getZonkedTypes = do
   tys <- Map.assocs <$> gets tcStateValues
   Map.fromList <$> forM tys (\(name, ty) -> do

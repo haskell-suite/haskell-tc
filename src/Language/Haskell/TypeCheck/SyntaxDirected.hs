@@ -12,7 +12,7 @@ import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Syntax
 
-import           Language.Haskell.Scope                 (GlobalName (..),
+import           Language.Haskell.Scope                 (Entity (..),
                                                          NameInfo (..),
                                                          Origin (..))
 import           Language.Haskell.TypeCheck.Debug
@@ -242,7 +242,7 @@ findConAssumption qname = case qname of
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
         _ -> error "Language.Haskell.TypeCheck.SyntaxDirected.findConAssumption: Unhandled con type."
     _ -> do
-        gname <- qnameToGlobalName qname
+        gname <- qnameToEntity qname
         findAssumption gname
 
 tiPat :: Pat (Pin s) -> ExpectedRho s -> TI s ()
@@ -344,7 +344,7 @@ declIdent decl =
 --        liftIO $ print rTy
     -- qualify the type sigs...
 
-declHeadType :: DeclHead (Pin s) -> ([TcVar], GlobalName)
+declHeadType :: DeclHead (Pin s) -> ([TcVar], Entity)
 declHeadType dhead =
     case dhead of
         DHead _ name ->
@@ -359,15 +359,15 @@ declHeadType dhead =
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
     tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
 
-instHeadType :: InstHead (Pin s) -> TI s ([TcType s], GlobalName)
+instHeadType :: InstHead (Pin s) -> TI s ([TcType s], Entity)
 instHeadType ihead =
   case ihead of
     IHCon _ qname -> do
-      gname <- qnameToGlobalName qname
+      gname <- qnameToEntity qname
       return ([], gname)
     IHInfix _ ty qname -> do
       ty' <- typeToTcType ty
-      gname <- qnameToGlobalName qname
+      gname <- qnameToEntity qname
       return ([ty'], gname)
     IHParen _ ih -> instHeadType ih
     IHApp _ ih ty -> do
@@ -375,7 +375,7 @@ instHeadType ihead =
       (tys, gname) <- instHeadType ih
       return (tys ++ [ty'], gname)
 
-tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (GlobalName, [TcType s])
+tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (Entity, [TcType s])
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
@@ -397,7 +397,7 @@ tiConDecl tvars dty conDecl =
         _ -> error "tiConDecl"
 
 tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl (Pin s) ->
-                 TI s (GlobalName, [TcType s])
+                 TI s (Entity, [TcType s])
 tiQualConDecl tvars dty (QualConDecl _ _ _ con) =
     tiConDecl tvars dty con
 
@@ -422,7 +422,7 @@ tiClassDecl decl =
     --     let scheme = TcForall [tcVar] ([IsIn gname (TcRef tcVar)] :=> tcType)
     --     setAssumption src scheme
 
-tiPrepareClassDecl :: GlobalName -> [TcVar] -> ClassDecl (Pin s) -> TI s ()
+tiPrepareClassDecl :: Entity -> [TcVar] -> ClassDecl (Pin s) -> TI s ()
 tiPrepareClassDecl className [tyVar] decl =
     case decl of
       ClsDecl _ (TypeSig _ names ty) -> do
@@ -440,7 +440,8 @@ tiPrepareDecl :: Decl (Pin s) -> TI s ()
 tiPrepareDecl decl =
     case decl of
         DataDecl _ _ _ dhead cons _ -> do
-            let (tcvars, GlobalName _ qname) = declHeadType dhead
+            let (tcvars, entity) = declHeadType dhead
+                qname = entityName entity
                 dataTy = foldl TcApp (TcCon qname) (map TcRef tcvars)
             forM_ cons $ \qualCon -> do
                 (con, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
@@ -493,7 +494,7 @@ If any predicates are left using skolem variables:
 If any predicates are left using meta variables:
   Example: fn x = show . read
 -}
-tiExpl :: (Decl (Pin s), GlobalName) -> TI s ()
+tiExpl :: (Decl (Pin s), Entity) -> TI s ()
 tiExpl (decl, binder) = do
   setPredicates []
   sigma <- findAssumption binder
@@ -518,7 +519,7 @@ Predicates:
   default all predicates that don't refer to inner meta variables.
   quantify type signatures with predicates
 -}
-tiDecls :: [(Decl (Pin s), GlobalName)] -> TI s ()
+tiDecls :: [(Decl (Pin s), Entity)] -> TI s ()
 tiDecls decls = withRecursive thisBindGroup $ do
     -- debug $ "Bind group: " ++ dshow False (map snd decls)
     outer_meta <- getFreeMetaVariables
@@ -603,7 +604,7 @@ tiBindGroup decls = do
 
 -- FIXME: Rename this function. We're not finding free variables, we finding
 --        all references.
-declFreeVariables :: Decl (Pin s) -> [GlobalName]
+declFreeVariables :: Decl (Pin s) -> [Entity]
 declFreeVariables decl =
     case decl of
         FunBind _ matches -> concatMap freeMatch matches
@@ -646,14 +647,14 @@ declFreeVariables decl =
             QConOp{} -> []
     freeAlt (Alt _ _pat rhs _binds) = freeRhs rhs
 
-qnameIdentifier :: QName (Pin s) -> GlobalName
+qnameIdentifier :: QName (Pin s) -> Entity
 qnameIdentifier qname =
     case qname of
         Qual _ _ name -> nameIdentifier name
         UnQual _ name -> nameIdentifier name
         _ -> error "qnameIdentifier"
 
-nameIdentifier :: Name (Pin s) -> GlobalName
+nameIdentifier :: Name (Pin s) -> Entity
 nameIdentifier name =
     case info of
         Resolved gname -> gname
@@ -661,7 +662,7 @@ nameIdentifier name =
   where
     Pin (Origin info _) _ = ann name
 
-declBinders :: Decl (Pin s) -> [GlobalName]
+declBinders :: Decl (Pin s) -> [Entity]
 declBinders decl =
     case decl of
         DataDecl{} -> []
@@ -675,7 +676,7 @@ declBinders decl =
         InstDecl{} -> []
         _ -> error $ "declBinders: " ++ show decl
 
-patBinders :: Pat (Pin s) -> [GlobalName]
+patBinders :: Pat (Pin s) -> [Entity]
 patBinders pat =
     case pat of
         PVar _ name ->

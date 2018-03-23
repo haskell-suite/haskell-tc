@@ -65,7 +65,7 @@ map (applySubst subst) preds
 -}
 
 data TcEnv = TcEnv
-  { tcEnvValues :: Map GlobalName T.Type
+  { tcEnvValues :: Map Entity T.Type
   }
 
 emptyTcEnv :: TcEnv
@@ -80,13 +80,13 @@ data TIError
 
 data TcState s = TcState
     { -- Values such as 'length', 'Nothing', 'Just', etc
-      tcStateValues     :: Map GlobalName (TcType s)
+      tcStateValues     :: Map Entity (TcType s)
     , tcStateClasses    :: [TcQual s (TcPred s)]
     , tcStateInstances  :: [TcQual s (TcPred s)]
     , tcStateUnique     :: Int
-    , tcStateRecursive  :: Set GlobalName
+    , tcStateRecursive  :: Set Entity
     -- ^ Set of recursive bindings in the current group.
-    , tcStateKnots      :: [(GlobalName, Pin s)]
+    , tcStateKnots      :: [(Entity, Pin s)]
     -- ^ Locations where bindings from the current group are used. This is used to set
     --   proper coercions after generalization.
 
@@ -100,7 +100,7 @@ newtype TI s a = TI { unTI :: ExceptT TIError (StateT (TcState s) (ST s)) a }
 liftST :: ST s a -> TI s a
 liftST action = TI $ ExceptT $ StateT $ \env -> do
   a <- action
-  return $ (Right a,env)
+  return (Right a,env)
 
 tiMaybe :: b -> (a -> TI s b) -> Maybe a -> TI s b
 tiMaybe def _ Nothing = pure def
@@ -144,7 +144,7 @@ emptyTcState = TcState
 --         --                   ,tcStateCoercions = Map.fromList coercions'}
 --         return ()
 
-withRecursive :: [GlobalName] -> TI s a -> TI s a
+withRecursive :: [Entity] -> TI s a -> TI s a
 withRecursive rec action = do
     original <- get
     modify $ \st -> st{tcStateRecursive = tcStateRecursive st `Set.union` Set.fromList rec}
@@ -152,14 +152,14 @@ withRecursive rec action = do
     modify $ \st -> st{tcStateRecursive = tcStateRecursive original}
     return a
 
-isRecursive :: GlobalName -> TI s Bool
+isRecursive :: Entity -> TI s Bool
 isRecursive gname = gets $ Set.member gname . tcStateRecursive
 
-setKnot :: GlobalName -> Pin s -> TI s ()
+setKnot :: Entity -> Pin s -> TI s ()
 setKnot gname pin =
     modify $ \st -> st{tcStateKnots = (gname,pin) : tcStateKnots st}
 
-getKnots :: TI s [(GlobalName, Pin s)]
+getKnots :: TI s [(Entity, Pin s)]
 getKnots = gets tcStateKnots
 
 addPredicates :: [TcPred s] -> TI s ()
@@ -184,12 +184,12 @@ newUnique = do
 --     m <- gets tcStateValues
 --     nub . concat <$> mapM metaVariables (Map.elems m)
 
-setAssumption :: GlobalName -> TcType s -> TI s ()
+setAssumption :: Entity -> TcType s -> TI s ()
 setAssumption ident tySig = -- trace (show (P.pretty ident) ++ " :: " ++ show (P.pretty tySig)) $
   modify $ \env ->
     env{ tcStateValues = Map.insert ident tySig (tcStateValues env) }
 
-findAssumption :: GlobalName -> TI s (Sigma s)
+findAssumption :: Entity -> TI s (Sigma s)
 findAssumption ident = do
     m <- gets tcStateValues
     case Map.lookup ident m of
@@ -227,16 +227,16 @@ isBinding :: Scope.NameInfo -> Bool
 isBinding Scope.Binding{} = True
 isBinding _ = False
 
-expectResolvedPin :: Pin s -> TI s GlobalName
+expectResolvedPin :: Pin s -> TI s Entity
 expectResolvedPin (Pin (Origin (Resolved gname) _) _) = pure gname
 expectResolvedPin (Pin (Origin (Binding gname) _) _) = pure gname
 
-qnameToGlobalName :: QName (Pin s) -> TI s GlobalName
-qnameToGlobalName qname =
+qnameToEntity :: QName (Pin s) -> TI s Entity
+qnameToEntity qname =
   case qname of
     Qual _src _mod name      -> expectResolvedPin (ann name)
     UnQual _src name         -> expectResolvedPin (ann name)
-    Special _src _specialCon -> error "qnameToGlobalName: Special?"
+    Special _src _specialCon -> error "qnameToEntity: Special?"
 
 addClass :: TcQual s (TcPred s) -> TI s ()
 addClass classDef =
@@ -249,7 +249,7 @@ addInstance instDef =
 -- ass "Ord" = ([TcIsIn "Eq" a], TcRef a)
 -- lookupClass "Monad" = ([TcIsIn "Applicative" m], TcRef m)
 -- lookupClass "Show" = ([], TcRef a)
-lookupClass :: GlobalName -> TI s ([TcPred s], TcType s)
+lookupClass :: Entity -> TI s ([TcPred s], TcType s)
 lookupClass className = do
   clss <- gets tcStateClasses
   case [ (constraints, ty)
@@ -261,7 +261,7 @@ lookupClass className = do
 -- lookupInstances "Ord" = [ ([], Int)
 --                         , ([TcIsIn "Ord" a], Maybe a)
 --                         , ([TcIsIn "Ord" a, TcIsIn "Ord" b], (a, b)) ]
-lookupInstances :: GlobalName -> TI s [([TcPred s], TcType s)]
+lookupInstances :: Entity -> TI s [([TcPred s], TcType s)]
 lookupInstances className = do
   insts <- gets tcStateInstances
   return [ (constraints, ty)
@@ -304,8 +304,8 @@ tcVarFromName name =
     TcVar ident src
   where
     src = case ann name of
-            Pin (Origin (Resolved (GlobalName src _qname)) _) _ -> src
-            Pin (Origin (Binding (GlobalName src _qname)) _) _ -> src
+            Pin (Origin (Resolved entity) _) _ -> entityLocation entity
+            Pin (Origin (Binding entity) _) _ -> entityLocation entity
     ident =
       case name of
         Symbol _ symbol -> symbol
@@ -331,8 +331,8 @@ typeToTcType ty =
       TyCon _ (Special _ UnitCon{}) ->
           pure $ TcTuple []
       TyCon _ qname -> do
-        GlobalName _ qname <- qnameToGlobalName qname
-        pure $ TcCon qname
+        entity <- qnameToEntity qname
+        pure $ TcCon $ entityName entity
       TyApp _ a b -> TcApp <$> typeToTcType a <*> typeToTcType b
       TyParen _ t -> typeToTcType t
       TyTuple _ Unboxed tys -> TcUnboxedTuple <$> mapM typeToTcType tys
@@ -352,7 +352,7 @@ assertionToPredicate asst =
   case asst of
     ParenA _ sub -> assertionToPredicate sub
     ClassA _ qname [ty] ->
-      TcIsIn <$> qnameToGlobalName qname <*> typeToTcType ty
+      TcIsIn <$> qnameToEntity qname <*> typeToTcType ty
     ClassA _ qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
     _ -> error "assertionToPredicate: unsupported assertion"
 

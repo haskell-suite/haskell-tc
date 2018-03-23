@@ -12,8 +12,8 @@ type Verbose = Bool
 class DebugShow a where
   dshow :: Verbose -> a -> String
 
-instance DebugShow GlobalName where
-  dshow verbose (GlobalName _loc qname) = dshow verbose qname
+instance DebugShow Entity where
+  dshow verbose = dshow verbose . entityName
 
 instance DebugShow QualifiedName where
   dshow _ (QualifiedName _ ident) = ident

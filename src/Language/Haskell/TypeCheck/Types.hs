@@ -9,7 +9,7 @@ import           System.IO.Unsafe
 import           Control.Monad.ST.Unsafe
 import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
 
-import           Language.Haskell.Scope            (GlobalName (..), Location,
+import           Language.Haskell.Scope            (Entity (..), Location,
                                                     QualifiedName (..))
 import qualified Language.Haskell.Scope            as Scope
 
@@ -184,8 +184,8 @@ instance P.Pretty t => P.Pretty (Qualified t) where
         P.parensIf (length quals > 1) (Doc.hsep $ Doc.punctuate Doc.comma $ map P.pretty quals) Doc.<+>
         Doc.text "⇒" Doc.<+> P.prettyPrec p t
 
-instance P.Pretty GlobalName where
-    pretty (GlobalName _ qname) = P.pretty qname
+instance P.Pretty Entity where
+    pretty = P.pretty . entityName
 
 instance P.Pretty QualifiedName where
     pretty (QualifiedName m ident) =
@@ -249,9 +249,9 @@ data TcQual s t = TcQual [TcPred s] t
 data Qualified t = [Predicate] :=> t
     deriving ( Show, Eq, Ord )
 
-data TcPred s = TcIsIn GlobalName (TcType s)
+data TcPred s = TcIsIn Entity (TcType s)
     deriving ( Show, Eq, Ord )
-data Predicate = IsIn GlobalName Type
+data Predicate = IsIn Entity Type
     deriving ( Show, Eq, Ord )
 
 -- type TcInstance s = TcQual s (TcPred s)
