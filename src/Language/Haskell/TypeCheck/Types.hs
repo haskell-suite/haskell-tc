@@ -1,6 +1,10 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Haskell.TypeCheck.Types where
 
+import Data.Data
+import GHC.Generics
 import           Control.Monad.ST
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
@@ -17,7 +21,7 @@ type SkolemRef = Int
 
 -- Type variables are uniquely identified by their name and binding point.
 data TcVar = TcVar String Location
-    deriving ( Show, Eq, Ord )
+    deriving ( Show, Eq, Ord, Data, Generic )
 
 data TcMetaVar s = TcMetaRef String (STRef s (Maybe (TcType s)))
 instance Show (TcMetaVar s) where
@@ -67,7 +71,7 @@ data Type
     | TyTuple [Type]
     | TyList Type
     | TyUndefined
-    deriving ( Show, Eq, Ord )
+    deriving ( Show, Eq, Ord, Data, Generic )
 
 toTcType :: Type -> TcType s
 toTcType ty =
@@ -114,7 +118,7 @@ data Proof
   | ProofSrc Type
   | ProofPAp Proof Proof
   | ProofVar Int
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Data, Generic)
 
 
 
@@ -247,12 +251,12 @@ instance P.Pretty Proof where
 data TcQual s t = TcQual [TcPred s] t
     deriving ( Show, Eq, Ord )
 data Qualified t = [Predicate] :=> t
-    deriving ( Show, Eq, Ord )
+    deriving ( Show,  Eq, Ord, Data, Generic )
 
 data TcPred s = TcIsIn Entity (TcType s)
     deriving ( Show, Eq, Ord )
 data Predicate = IsIn Entity Type
-    deriving ( Show, Eq, Ord )
+    deriving ( Show, Eq, Ord, Data, Generic )
 
 -- type TcInstance s = TcQual s (TcPred s)
 -- type Instance = Qualified Predicate
