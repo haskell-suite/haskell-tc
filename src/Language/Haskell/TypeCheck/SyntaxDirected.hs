@@ -60,44 +60,27 @@ tiLit lit exp_ty = do
 --         QVarOp src var -> tiExp (Var src var)
 --         QConOp src con -> tiExp (Con src con)
 
--- tiStmts :: [Stmt Origin] -> TI s (TcType s)
--- tiStmts [] = error "tiStmts: empty list"
--- tiStmts [stmt] =
---   case stmt of
---     Generator{} -> error $ "tiStmts: " ++ show [stmt]
---     Qualifier _ expr -> tiExp expr
---     _ -> error $ "tiStmts: " ++ show stmt
--- tiStmts (stmt:stmts) =
---   case stmt of
---     Generator (Origin _ pin) pat expr -> do
---       ty <- TcMetaVar <$> newTcVar
---
---       patTy <- tiPat pat
---       exprTy <- tiExp expr
---       restTy <- tiStmts stmts
---
---       (TcQual _preds bindIOTy, coercion) <- freshInst bindIOSig
---       let ioPatTy = ioType `TcApp` patTy
---
---       unify ioPatTy exprTy -- IO patTy == exprTy
---       unify bindIOTy (exprTy `TcFun` ((patTy `TcFun` restTy) `TcFun` (ioType `TcApp` ty))) -- bindIO == expr -> (pat -> rest) -> IO _
---
---       setCoercion pin coercion
---
---       return restTy
---
---     Qualifier (Origin _ pin) expr -> do
---       ty <- TcMetaVar <$> newTcVar
---       exprTy <- tiExp expr
---       restTy <- tiStmts stmts
---
---       (TcQual _preds thenIOTy, coercion) <- freshInst thenIOSig
---       unify thenIOTy (exprTy `TcFun` (restTy `TcFun` (ioType `TcApp` ty)))
---
---       setCoercion pin coercion
---
---       return restTy
---     _ -> error $ "tiStmts: " ++ show (stmt:stmts)
+tiStmts :: [Stmt (Pin s)] -> Expected s (Rho s) -> TI s ()
+tiStmts [] exp_ty = error "tiStmts: empty list"
+tiStmts [stmt] exp_ty =
+  case stmt of
+    Generator{} -> error $ "tiStmts: " ++ show [stmt]
+    Qualifier _ expr -> tiExp expr exp_ty
+    _ -> error $ "tiStmts: " ++ show stmt
+tiStmts (stmt:stmts) exp_ty =
+  case stmt of
+    Generator _ pat expr -> do
+      patTy <- inferRho (tiPat pat)
+      let ioPatTy = ioType `TcApp` patTy
+      let pin = ann expr
+      checkSigma (ann expr) (tiExp expr) ioPatTy
+      tiStmts stmts exp_ty
+    Qualifier _ expr -> do
+      ty <- TcMetaVar <$> newTcVar
+      let ioTy = ioType `TcApp` ty
+      checkRho (tiExp expr) ioTy
+      tiStmts stmts exp_ty
+    _ -> error $ "tiStmts: " ++ show (stmt:stmts)
 
 consSigma :: TcType s
 consSigma = TcForall [aRef] (TcQual [] (aTy `TcFun` (TcList aTy `TcFun` TcList aTy)))
@@ -227,7 +210,7 @@ tiExp expr exp_ty =
       eltTy <- unifyList =<< expectList exp_ty
       setProof pin (`TcProofAp` [eltTy]) eltTy
       forM_ exprs $ \expr' -> checkRho (tiExp expr') eltTy
-    -- Do _ stmts -> tiStmts stmts
+    Do _ stmts -> tiStmts stmts exp_ty
     _ -> error $ "tiExp: " ++ show expr
 
 findConAssumption :: QName (Pin s) -> TI s (TcType s)
