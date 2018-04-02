@@ -46,6 +46,7 @@ data TcType s
     | TcUnboxedTuple [TcType s]
     | TcTuple [TcType s]
     | TcList (TcType s)
+    | TcStar
     | TcUndefined
     deriving ( Show, Eq, Ord )
 
@@ -70,6 +71,7 @@ data Type
     | TyUnboxedTuple [Type]
     | TyTuple [Type]
     | TyList Type
+    | TyStar
     | TyUndefined
     deriving ( Show, Eq, Ord, Data, Generic )
 
@@ -229,6 +231,7 @@ instance P.Pretty Type where
       TyTuple tys -> Doc.tupled (map P.pretty tys)
       TyList ty ->
         Doc.brackets (P.pretty ty)
+      TyStar -> Doc.text "*"
       TyUndefined ->
         Doc.red (Doc.text "undefined")
 

@@ -327,16 +327,16 @@ declIdent decl =
 --        liftIO $ print rTy
     -- qualify the type sigs...
 
-declHeadType :: DeclHead (Pin s) -> ([TcVar], Entity)
+declHeadType :: DeclHead (Pin s) -> ([TcVar], Entity, Pin s)
 declHeadType dhead =
     case dhead of
         DHead _ name ->
             let Pin (Origin (Binding gname) _) _ = ann name
-            in ([], gname)
+            in ([], gname, ann name)
         DHApp _ dh tyVarBind ->
-            let (tcVars, gname) = declHeadType dh
+            let (tcVars, gname, pin) = declHeadType dh
                 var = tcVarFromTyVarBind tyVarBind
-            in (tcVars ++ [var], gname)
+            in (tcVars ++ [var], gname, pin)
         _ -> error "declHeadType"
   where
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
@@ -358,14 +358,12 @@ instHeadType ihead =
       (tys, gname) <- instHeadType ih
       return (tys ++ [ty'], gname)
 
-tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (Entity, [TcType s])
+tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (Pin s, [TcType s])
 tiConDecl tvars dty conDecl =
     case conDecl of
         ConDecl _ con tys -> do
-            let Pin (Origin (Binding gname) _) _ = ann con
-            -- setCoercion (globalNameSrcSpanInfo gname) (TcProofAbs tvars)
             tys' <- mapM typeToTcType tys
-            return (gname, tys')
+            return (ann con, tys')
         RecDecl _ con fields -> do
             conTys <- concat <$> sequence
                     [ replicateM (length names) (typeToTcType ty)
@@ -375,12 +373,11 @@ tiConDecl tvars dty conDecl =
                 forM_ names $ \name -> do
                     gname <- expectResolvedPin (ann name)
                     setAssumption gname (TcForall tvars $ TcQual [] ty)
-            gname <- expectResolvedPin (ann con)
-            return (gname, conTys)
+            return (ann con, conTys)
         _ -> error "tiConDecl"
 
 tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl (Pin s) ->
-                 TI s (Entity, [TcType s])
+                 TI s (Pin s, [TcType s])
 tiQualConDecl tvars dty (QualConDecl _ _ _ con) =
     tiConDecl tvars dty con
 
@@ -423,14 +420,17 @@ tiPrepareDecl :: Decl (Pin s) -> TI s ()
 tiPrepareDecl decl =
     case decl of
         DataDecl _ _ _ dhead cons _ -> do
-            let (tcvars, entity) = declHeadType dhead
+            let (tcvars, entity, pin) = declHeadType dhead
                 qname = entityName entity
                 dataTy = foldl TcApp (TcCon qname) (map TcRef tcvars)
+                stars = map (const TcStar) tcvars
+            setProof pin id (foldl TcFun TcStar stars)
             forM_ cons $ \qualCon -> do
-                (con, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
+                (pin, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
+                entity <- expectResolvedPin pin
                 let ty = foldr TcFun dataTy fieldTys
-                -- setProof (globalNameSrcSpanInfo con) (tcProofAbs tcvars) ty
-                setAssumption con (TcForall tcvars $ TcQual [] ty)
+                setProof pin (tcProofAbs tcvars) ty
+                setAssumption entity (TcForall tcvars $ TcQual [] ty)
         FunBind{} -> return ()
         PatBind{} -> return ()
         TypeDecl{} -> return ()
@@ -444,7 +444,7 @@ tiPrepareDecl decl =
                 --setCoercion (nameIdentifier name)
                 --    (CoerceAbs (freeTcVariables $ typeToTcType ty))
         ClassDecl _ mbCtx dhead _funDeps mbDecls -> do
-          let ([tcvar], className) = declHeadType dhead
+          let ([tcvar], className, _pin) = declHeadType dhead
           constraints <- tiMaybe [] contextToPredicates mbCtx
           let classDef = TcQual constraints (TcIsIn className (TcRef tcvar))
           addClass classDef

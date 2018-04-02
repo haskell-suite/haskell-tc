@@ -285,6 +285,7 @@ zonkType ty =
     TcUnboxedTuple tys -> T.TyUnboxedTuple <$> mapM zonkType tys
     TcTuple tys -> T.TyTuple <$> mapM zonkType tys
     TcList elt -> T.TyList <$> zonkType elt
+    TcStar -> pure T.TyStar
 
 zonkPredicate :: TcPred s -> TI s Predicate
 zonkPredicate (TcIsIn className ty) = IsIn className <$> zonkType ty
