@@ -88,6 +88,7 @@ toTcType ty =
     TyTuple tys -> TcTuple (map toTcType tys)
     TyList t1 -> TcList (toTcType t1)
     TyUndefined -> TcUndefined
+    TyStar -> TcStar
 
 toTcPred :: Predicate -> TcPred s
 toTcPred (IsIn className ty) = TcIsIn className (toTcType ty)

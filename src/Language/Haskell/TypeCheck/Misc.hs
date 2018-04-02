@@ -90,6 +90,7 @@ getMetaTyVars tys = goMany tys []
               | otherwise      -> pure (var:acc)
         TcTuple tys -> goMany tys acc
         TcList elt -> go elt acc
+        TcStar -> pure acc
 
 predMetaTyVars :: [TcPred s] -> TI s [TcMetaVar s]
 predMetaTyVars preds = getMetaTyVars [ ty | TcIsIn _class ty <- preds ]

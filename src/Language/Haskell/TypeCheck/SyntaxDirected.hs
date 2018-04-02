@@ -425,6 +425,7 @@ tiPrepareDecl decl =
                 dataTy = foldl TcApp (TcCon qname) (map TcRef tcvars)
                 stars = map (const TcStar) tcvars
             setProof pin id (foldl TcFun TcStar stars)
+            setAssumption entity (foldl TcFun TcStar stars)
             forM_ cons $ \qualCon -> do
                 (pin, fieldTys) <- tiQualConDecl tcvars dataTy qualCon
                 entity <- expectResolvedPin pin
