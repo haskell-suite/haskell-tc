@@ -47,6 +47,7 @@ tiLit lit exp_ty = do
     PrimChar{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "I32")
     Int{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Int")
     Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
+    String{} -> return $ TcList $ TcCon (mkBuiltIn "LHC.Prim" "Char")
     _ -> error $ "tiLit: " ++ show lit
   _coercion <- instSigma ty exp_ty
   -- Hm, what to do with the proof here. We need it for overloaded constants
