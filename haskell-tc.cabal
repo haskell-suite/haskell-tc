@@ -24,7 +24,8 @@ library
                        Language.Haskell.TypeCheck.SyntaxDirected,
                        Language.Haskell.TypeCheck.Misc,
                        Language.Haskell.TypeCheck.Subsumption,
-                       Language.Haskell.TypeCheck.Monad
+                       Language.Haskell.TypeCheck.Monad,
+                       Language.Haskell.TypeCheck.Debug
   -- other-modules:
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.7 && <5,
