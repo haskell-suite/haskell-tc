@@ -436,6 +436,7 @@ tiPrepareDecl decl =
         FunBind{} -> return ()
         PatBind{} -> return ()
         TypeDecl{} -> return ()
+        InlineSig{} -> return ()
         ForImp _ _conv _safety _mbExternal name ty -> do
             gname <- expectResolvedPin (ann name)
             setAssumption gname =<< typeToTcType ty
@@ -659,6 +660,7 @@ declBinders decl =
         TypeSig{} -> []
         ClassDecl{} -> []
         InstDecl{} -> []
+        InlineSig{} -> []
         _ -> error $ "declBinders: " ++ show decl
 
 patBinders :: Pat (Pin s) -> [Entity]

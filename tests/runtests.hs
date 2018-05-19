@@ -61,6 +61,7 @@ unitTests =
   , typeTest "AbsAp2"
   , typeTest "AbsAp3"
   , typeTest "AbsAp4"
+  , typeTest "InlinePragma"
   ]
 
 --scopeTest :: String -> FilePath -> Test
