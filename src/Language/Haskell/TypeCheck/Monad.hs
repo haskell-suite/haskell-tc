@@ -219,9 +219,10 @@ unpinAST = traverse unpin
         Nothing -> return $ Scoped nameinfo srcspan
         Just proof -> do
           zonked <- simplifyProof <$> zonkProof proof
-          if isTrivial zonked && not (isBinding nameinfo)
-            then pure $ Scoped nameinfo srcspan
-            else pure $ Coerced nameinfo srcspan zonked
+          pure $ Coerced nameinfo srcspan zonked
+          -- if isTrivial zonked && not (isBinding nameinfo)
+          --   then pure $ Scoped nameinfo srcspan
+          --   else pure $ Coerced nameinfo srcspan zonked
 
 isBinding :: Scope.NameInfo -> Bool
 isBinding Scope.Binding{} = True

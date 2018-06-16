@@ -1,11 +1,13 @@
 module Language.Haskell.TypeCheck
   ( module Language.Haskell.TypeCheck.Types
+  , reifyProof
   , TcEnv(..), emptyTcEnv
   , typecheck
   ) where
 
 import Language.Haskell.Scope
 import Language.Haskell.TypeCheck.Types
+import Language.Haskell.TypeCheck.Proof
 import Language.Haskell.TypeCheck.Monad
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.SyntaxDirected

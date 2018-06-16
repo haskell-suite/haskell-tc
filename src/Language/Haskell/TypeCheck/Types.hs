@@ -93,16 +93,6 @@ toTcType ty =
 toTcPred :: Predicate -> TcPred s
 toTcPred (IsIn className ty) = TcIsIn className (toTcType ty)
 
--- data Coercion s
---     = CoerceId
---     | CoerceAbs [TcVar]
---     | CoerceAp [TcType s]
---     | CoerceFun (Coercion s) (Coercion s)
---     | CoerceCompose (Coercion s) (Coercion s)
---     | CoerceAbsAp [TcVar] (Coercion s)
---     | CoerceFunAbsAp [TcVar] (Coercion s)
---     deriving (Show , Eq)
-
 type TcCoercion s = TcProof s -> TcProof s
 data TcProof s
   = TcProofAbs [TcVar] (TcProof s)
@@ -113,7 +103,6 @@ data TcProof s
   | TcProofVar Int
   deriving (Show)
 
-type Coercion = Proof -> Proof
 data Proof
   = ProofAbs [TcVar] Proof
   | ProofAp Proof [Type]

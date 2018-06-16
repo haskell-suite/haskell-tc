@@ -38,3 +38,9 @@ isTrivial :: Proof -> Bool
 isTrivial (ProofSrc TyForall{}) = False
 isTrivial ProofSrc{} = True
 isTrivial _ = False
+
+
+-- Proof -> Type
+reifyProof :: Proof -> Type
+reifyProof (ProofSrc ty) = ty
+reifyProof (ProofAbs tvs p) = TyForall tvs ([] :=> reifyProof p)
