@@ -91,8 +91,9 @@ getTcInfo file = do
               getTyped (Coerced nameInfo src proof) = [(nameInfo, src, proof)]
               getTyped _ = []
 
-              bindings = [ (src, proof) | (Scope.Binding _gname, src, proof) <- allTyped ]
-              usages = [ (gname, src, proof) | (Scope.Resolved gname, src, proof) <- allTyped ]
+              bindings = [ (src, proof) | (Scope.Binding{}, src, proof) <- allTyped ]
+              builtin = [ (src, proof) | (Scope.None, src, proof) <- allTyped ]
+              usages = [ (src, proof) | (Scope.Resolved{}, src, proof) <- allTyped ]
 
           return $ Right $ show $ Doc.vsep $
             [ Doc.text "Bindings:"] ++
@@ -104,7 +105,7 @@ getTcInfo file = do
             [ Doc.empty, Doc.text "Proofs:"] ++
             [ text "coercion" <> text ":" <+> tyMsg Doc.<$$>
               ppLocation 2 fileContent srcspan
-            | (gname, srcspan, proof)  <- usages
+            | (srcspan, proof)  <- builtin ++ usages
             , let tyMsg = P.pretty proof ] ++
             [Doc.empty]
 

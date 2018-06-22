@@ -89,6 +89,12 @@ consSigma = TcForall [aRef] (TcQual [] (aTy `TcFun` (TcList aTy `TcFun` TcList a
     aRef = TcVar "a" []
     aTy = TcRef aRef
 
+listSigma :: TcType s
+listSigma = TcForall [aRef] (TcQual [] (TcList aTy))
+  where
+    aRef = TcVar "a" []
+    aTy = TcRef aRef
+
 -- forall a b. IO a -> IO b -> IO b
 thenIOSig :: TcType s
 thenIOSig = TcForall [aRef, bRef] (TcQual [] (ioA `TcFun` (ioB `TcFun` ioB)))
@@ -209,7 +215,9 @@ tiExp expr exp_ty =
       tiExp subExpr exp_ty
     List pin exprs -> do
       eltTy <- unifyList =<< expectList exp_ty
-      setProof pin (`TcProofAp` [eltTy]) eltTy
+      -- setProof pin (`TcProofAp` [eltTy]) eltTy
+      -- setProof pin id (TcList eltTy)
+      setProof pin (`TcProofAp` [eltTy]) listSigma
       forM_ exprs $ \expr' -> checkRho (tiExp expr') eltTy
     Do _ stmts -> tiStmts stmts exp_ty
     _ -> error $ "tiExp: " ++ show expr
