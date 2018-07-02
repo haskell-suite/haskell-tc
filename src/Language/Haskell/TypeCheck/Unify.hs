@@ -87,6 +87,14 @@ unifyFuns = worker []
       unify ty (foldr TcFun ret args)
       return (reverse acc ++ args, ret)
 
+unifyApp :: Rho s -> TI s (Sigma s, Sigma s)
+unifyApp (TcApp a b) = pure (a,b)
+unifyApp ty = do
+  a <- TcMetaVar <$> newTcVar
+  b <- TcMetaVar <$> newTcVar
+  unify ty (TcApp a b)
+  return (a, b)
+
 unifyUnboxedTuple :: Int -> Rho s -> TI s [Sigma s]
 unifyUnboxedTuple n (TcUnboxedTuple tys) | length tys == n = return tys
 unifyUnboxedTuple n ty = do

@@ -70,17 +70,49 @@ tiStmts [stmt] exp_ty =
     _ -> error $ "tiStmts: " ++ show stmt
 tiStmts (stmt:stmts) exp_ty =
   case stmt of
-    Generator _ pat expr -> do
-      patTy <- inferRho (tiPat pat)
-      let ioPatTy = ioType `TcApp` patTy
-      let pin = ann expr
-      checkSigma (ann expr) (tiExp expr) ioPatTy
+    -- pat :: a
+    -- expr :: IO a
+    -- exp_ty :: IO b
+    -- bindIO :: IO a -> (a -> IO b) -> IO b
+    Generator pin pat expr -> do
+      (bindIORho, proof) <- instantiate bindIOSig
+      (ioA, _aIOb, res_ty) <- unifyFun2 bindIORho
+      (_io, a) <- unifyApp ioA
+
+      checkSigma (ann pat) (tiPat pat) a
+      checkSigma (ann expr) (tiExp expr) ioA
+      _coercion <- instSigma res_ty exp_ty
+
+      setProof pin proof bindIOSig
+
       tiStmts stmts exp_ty
-    Qualifier _ expr -> do
-      ty <- TcMetaVar <$> newTcVar
-      let ioTy = ioType `TcApp` ty
-      checkRho (tiExp expr) ioTy
+
+    -- expr :: IO a
+    -- thenIO :: IO a -> IO b -> IO b
+    -- exp_ty :: IO b
+    Qualifier pin expr -> do
+      (thenIORho, proof) <- instantiate thenIOSig
+      (ioA, _aIOb, res_ty) <- unifyFun2 thenIORho
+
+      checkSigma (ann expr) (tiExp expr) ioA
+      _coercion <- instSigma res_ty exp_ty
+
+      setProof pin proof thenIOSig
+
       tiStmts stmts exp_ty
+
+    -- Generator _ pat expr -> do
+    --   patTy <- inferRho (tiPat pat)
+    --   let ioPatTy = ioType `TcApp` patTy
+    --   let pin = ann expr
+    --   checkSigma (ann expr) (tiExp expr) ioPatTy
+    --   (bindIORho, proof) <- instantiate bindIOSig
+    --   tiStmts stmts exp_ty
+    -- Qualifier _ expr -> do
+    --   ty <- TcMetaVar <$> newTcVar
+    --   let ioTy = ioType `TcApp` ty
+    --   checkRho (tiExp expr) ioTy
+    --   tiStmts stmts exp_ty
     _ -> error $ "tiStmts: " ++ show (stmt:stmts)
 
 consSigma :: TcType s
