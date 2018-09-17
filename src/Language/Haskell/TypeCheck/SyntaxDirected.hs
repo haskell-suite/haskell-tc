@@ -662,6 +662,8 @@ declFreeVariables decl =
             Do _ stmts -> concatMap freeStmt stmts
             Tuple _ _ exprs -> concatMap freeExp exprs
             List _ exprs -> concatMap freeExp exprs
+            Let _ binds e ->
+              freeBinds (Just binds) ++ freeExp e
             _ -> unhandledSyntax "freeExp" expr
     freeStmt stmt =
         case stmt of
