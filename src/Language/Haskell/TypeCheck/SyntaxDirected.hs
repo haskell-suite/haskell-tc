@@ -11,6 +11,7 @@ import           Data.Maybe
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Syntax
+import qualified Language.Haskell.Exts.Pretty as HS
 
 import           Language.Haskell.Scope                 (Entity (..),
                                                          NameInfo (..),
@@ -48,7 +49,7 @@ tiLit lit exp_ty = do
     Int{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Int")
     Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
     String{} -> return $ TcList $ TcCon (mkBuiltIn "LHC.Prim" "Char")
-    _ -> error $ "tiLit: " ++ show lit
+    _ -> unhandledSyntax "tiLit" lit
   _coercion <- instSigma ty exp_ty
   -- Hm, what to do with the proof here. We need it for overloaded constants
   -- such as numbers and Strings (iff OverloadedStrings enabled).
@@ -65,9 +66,9 @@ tiStmts :: [Stmt (Pin s)] -> Expected s (Rho s) -> TI s ()
 tiStmts [] exp_ty = error "tiStmts: empty list"
 tiStmts [stmt] exp_ty =
   case stmt of
-    Generator{} -> error $ "tiStmts: " ++ show [stmt]
+    Generator{} -> unhandledSyntax "tiStmts" stmt
     Qualifier _ expr -> tiExp expr exp_ty
-    _ -> error $ "tiStmts: " ++ show stmt
+    _ -> unhandledSyntax "tiStmts" stmt
 tiStmts (stmt:stmts) exp_ty =
   case stmt of
     -- pat :: a
@@ -113,7 +114,7 @@ tiStmts (stmt:stmts) exp_ty =
     --   let ioTy = ioType `TcApp` ty
     --   checkRho (tiExp expr) ioTy
     --   tiStmts stmts exp_ty
-    _ -> error $ "tiStmts: " ++ show (stmt:stmts)
+    _ -> unhandledSyntax "tiStmts" stmt
 
 consSigma :: TcType s
 consSigma = TcForall [aRef] (TcQual [] (aTy `TcFun` (TcList aTy `TcFun` TcList aTy)))
@@ -252,7 +253,7 @@ tiExp expr exp_ty =
       setProof pin (`TcProofAp` [eltTy]) listSigma
       forM_ exprs $ \expr' -> checkRho (tiExp expr') eltTy
     Do _ stmts -> tiStmts stmts exp_ty
-    _ -> error $ "tiExp: " ++ show expr
+    _ -> unhandledSyntax "tiExp" expr
 
 findConAssumption :: QName (Pin s) -> TI s (TcType s)
 findConAssumption qname = case qname of
@@ -264,7 +265,7 @@ findConAssumption qname = case qname of
         Cons{} -> do
             ty <- TcMetaVar <$> newTcVar
             return $ ty `TcFun` (TcList ty `TcFun` TcList ty)
-        _ -> error "Language.Haskell.TypeCheck.SyntaxDirected.findConAssumption: Unhandled con type."
+        _ -> unhandledSyntax "findConAssumption" qname
     _ -> do
         gname <- qnameToEntity qname
         findAssumption gname
@@ -305,14 +306,14 @@ tiPat thisPat exp_ty =
       forM_ (zip patTys [a,b]) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
       _coercion <- instSigma retTy exp_ty
       return ()
-    _ -> error $ "tiPat: " ++ show thisPat
+    _ -> unhandledSyntax "tiPat" thisPat
 
 tiRhs :: Rhs (Pin s) -> ExpectedRho s -> TI s ()
 tiRhs rhs exp_ty =
   case rhs of
     UnGuardedRhs _ expr ->
       tiExp expr exp_ty
-    _ -> error "tiRhs"
+    _ -> unhandledSyntax "tiRhs" rhs
 
 tiMatch :: Match (Pin s) -> ExpectedRho s -> TI s ()
 tiMatch match exp_ty =
@@ -336,9 +337,9 @@ tiMatch match exp_ty =
 
 tiBinds :: Binds (Pin s) -> TI s ()
 tiBinds binds =
-    case binds of
-        BDecls _ decls -> tiBindGroup decls
-        _ -> error "Language.Haskell.TypeCheck.Infer.tiBinds"
+  case binds of
+    BDecls _ decls -> tiBindGroup decls
+    _ -> error "Language.Haskell.TypeCheck.Infer.tiBinds"
 
 tiDecl :: Decl (Pin s) -> ExpectedRho s -> TI s ()
 tiDecl decl exp_ty =
@@ -348,15 +349,15 @@ tiDecl decl exp_ty =
     PatBind _ _pat rhs binds -> do
       maybe (return ()) tiBinds binds
       tiRhs rhs exp_ty
-    _ -> error $ "tiDecl: " ++ show decl
+    _ -> unhandledSyntax "tiDecl" decl
 
 declIdent :: Decl (Pin s) -> SrcLoc
 declIdent decl =
-    case decl of
-        FunBind _ (Match _ name _ _ _:_) ->
-            let Pin (Origin _ src) _ = ann name
-            in getPointLoc src
-        _ -> error "declIdent"
+  case decl of
+    FunBind _ (Match _ name _ _ _:_) ->
+      let Pin (Origin _ src) _ = ann name
+      in getPointLoc src
+    _ -> unhandledSyntax "declIdent" decl
 
 --tiImpls :: [Decl Origin] -> TI ()
 --tiImpls impls = do
@@ -371,14 +372,14 @@ declIdent decl =
 declHeadType :: DeclHead (Pin s) -> ([TcVar], Entity, Pin s)
 declHeadType dhead =
     case dhead of
-        DHead _ name ->
-            let Pin (Origin (Binding gname) _) _ = ann name
-            in ([], gname, ann name)
-        DHApp _ dh tyVarBind ->
-            let (tcVars, gname, pin) = declHeadType dh
-                var = tcVarFromTyVarBind tyVarBind
-            in (tcVars ++ [var], gname, pin)
-        _ -> error "declHeadType"
+      DHead _ name ->
+        let Pin (Origin (Binding gname) _) _ = ann name
+        in ([], gname, ann name)
+      DHApp _ dh tyVarBind ->
+        let (tcVars, gname, pin) = declHeadType dh
+            var = tcVarFromTyVarBind tyVarBind
+        in (tcVars ++ [var], gname, pin)
+      _ -> unhandledSyntax "declHeadType" dhead
   where
     tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
     tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
@@ -401,21 +402,21 @@ instHeadType ihead =
 
 tiConDecl :: [TcVar] -> TcType s -> ConDecl (Pin s) -> TI s (Pin s, [TcType s])
 tiConDecl tvars dty conDecl =
-    case conDecl of
-        ConDecl _ con tys -> do
-            tys' <- mapM typeToTcType tys
-            return (ann con, tys')
-        RecDecl _ con fields -> do
-            conTys <- concat <$> sequence
-                    [ replicateM (length names) (typeToTcType ty)
-                    | FieldDecl _ names ty <- fields ]
-            forM_ fields $ \(FieldDecl _ names fTy) -> do
-                ty <- TcFun dty <$> typeToTcType fTy
-                forM_ names $ \name -> do
-                    gname <- expectResolvedPin (ann name)
-                    setAssumption gname (TcForall tvars $ TcQual [] ty)
-            return (ann con, conTys)
-        _ -> error "tiConDecl"
+  case conDecl of
+    ConDecl _ con tys -> do
+      tys' <- mapM typeToTcType tys
+      return (ann con, tys')
+    RecDecl _ con fields -> do
+      conTys <- concat <$> sequence
+              [ replicateM (length names) (typeToTcType ty)
+              | FieldDecl _ names ty <- fields ]
+      forM_ fields $ \(FieldDecl _ names fTy) -> do
+        ty <- TcFun dty <$> typeToTcType fTy
+        forM_ names $ \name -> do
+            gname <- expectResolvedPin (ann name)
+            setAssumption gname (TcForall tvars $ TcQual [] ty)
+      return (ann con, conTys)
+    _ -> unhandledSyntax "tiConDecl" conDecl
 
 tiQualConDecl :: [TcVar] -> TcType s -> QualConDecl (Pin s) ->
                  TI s (Pin s, [TcType s])
@@ -429,7 +430,7 @@ tiClassDecl decl =
         --     sequence_
         --         [ worker className tyBind name ty
         --         | ClsDecl _ (TypeSig _ names ty) <- decls, name <- names ]
-        _ -> error "tiClassDecl"
+        _ -> unhandledSyntax "tiClassDecl" decl
   where
     -- tcVarFromName :: Name Origin -> TcVar
     -- tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
@@ -445,17 +446,17 @@ tiClassDecl decl =
 
 tiPrepareClassDecl :: Entity -> [TcVar] -> ClassDecl (Pin s) -> TI s ()
 tiPrepareClassDecl className [tyVar] decl =
-    case decl of
-      ClsDecl _ (TypeSig _ names ty) -> do
-        forM_ names $ \name -> do
-          gname <- expectResolvedPin (ann name)
-          ty' <- typeToTcType ty
-          free <- getFreeTyVars [ty']
-          setAssumption gname
-            (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
-      _ -> error $ "tiPrepareClassDecl: " ++ show decl
+  case decl of
+    ClsDecl _ (TypeSig _ names ty) -> do
+      forM_ names $ \name -> do
+        gname <- expectResolvedPin (ann name)
+        ty' <- typeToTcType ty
+        free <- getFreeTyVars [ty']
+        setAssumption gname
+          (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
+    _ -> unhandledSyntax "tiPrepareClassDecl: " decl
 tiPrepareClassDecl _ _ decl =
-    error $ "tiPrepareClassDecl: " ++ show decl
+  unhandledSyntax "tiPrepareClassDecl: " decl
 
 tiPrepareDecl :: Decl (Pin s) -> TI s ()
 tiPrepareDecl decl =
@@ -496,7 +497,7 @@ tiPrepareDecl decl =
             tiPrepareClassDecl className [tcvar] clsDecl
         InstDecl _ _mbOverlap instRule _mbInstDecls -> do
           tiPrepareInstDecl instRule
-        _ -> error $ "tiPrepareDecl: " ++ show decl
+        _ -> unhandledSyntax "tiPrepareDecl" decl
 
 tiPrepareInstDecl :: InstRule (Pin s) -> TI s ()
 tiPrepareInstDecl (IParen _ instRule) = tiPrepareInstDecl instRule
@@ -635,7 +636,7 @@ declFreeVariables decl =
     case decl of
         FunBind _ matches -> concatMap freeMatch matches
         PatBind _ _pat rhs binds -> freeRhs rhs ++ freeBinds binds
-        _ -> error $ "declFreeVariables: " ++ show decl
+        _ -> unhandledSyntax "declFreeVariables" decl
   where
     freeBinds Nothing = []
     freeBinds (Just (BDecls _src decls)) = concatMap declFreeVariables decls
@@ -643,11 +644,11 @@ declFreeVariables decl =
     freeMatch match =
         case match of
             Match _ _ _pats rhs mbBinds -> freeRhs rhs ++ freeBinds mbBinds
-            _ -> error "declFreeVariables, freeMatch"
+            _ -> unhandledSyntax "freeMatch" match
     freeRhs rhs =
         case rhs of
             UnGuardedRhs _ expr -> freeExp expr
-            _ -> error "declFreeVariables, freeRhs"
+            _ -> unhandledSyntax "freeRhs" rhs
     freeExp expr =
         case expr of
             Var _ qname -> [qnameIdentifier qname]
@@ -661,12 +662,12 @@ declFreeVariables decl =
             Do _ stmts -> concatMap freeStmt stmts
             Tuple _ _ exprs -> concatMap freeExp exprs
             List _ exprs -> concatMap freeExp exprs
-            _ -> error $ "freeExp: " ++ show expr
+            _ -> unhandledSyntax "freeExp" expr
     freeStmt stmt =
         case stmt of
             Generator _ _pat expr -> freeExp expr
             Qualifier _ expr -> freeExp expr
-            _ -> error $ "freeStmt: " ++ show stmt
+            _ -> unhandledSyntax "freeStmt" stmt
     freeQOp op =
         case op of
             QVarOp _ qname -> [qnameIdentifier qname]
@@ -678,13 +679,13 @@ qnameIdentifier qname =
     case qname of
         Qual _ _ name -> nameIdentifier name
         UnQual _ name -> nameIdentifier name
-        _ -> error "qnameIdentifier"
+        _ -> unhandledSyntax "qnameIdentifier" qname
 
 nameIdentifier :: Name (Pin s) -> Entity
 nameIdentifier name =
     case info of
         Resolved gname -> gname
-        _ -> error "nameIdentifier"
+        _ -> unresolved "nameIdentifier" name
   where
     Pin (Origin info _) _ = ann name
 
@@ -701,7 +702,7 @@ declBinders decl =
         ClassDecl{} -> []
         InstDecl{} -> []
         InlineSig{} -> []
-        _ -> error $ "declBinders: " ++ show decl
+        _ -> unhandledSyntax "declBinders" decl
 
 patBinders :: Pat (Pin s) -> [Entity]
 patBinders pat =
@@ -709,11 +710,24 @@ patBinders pat =
         PVar _ name ->
             let Pin (Origin (Binding gname) _) _ = ann name
             in [gname]
-        _ -> error $ "patBinders: " ++ show pat
+        _ -> unhandledSyntax "patBinders" pat
 
 tiModule :: Module (Pin s) -> TI s ()
 tiModule m =
     case m of
         Module _ _dhead _pragma _imports decls ->
             tiBindGroup decls
-        _ -> error "tiModule"
+        _ -> unhandledSyntax "tiModule" m
+
+
+
+
+unhandledSyntax :: HS.Pretty a => String -> a -> b
+unhandledSyntax tag ast =
+  error $ "Language.Haskell.TypeCheck.SyntaxDirected." ++ tag ++ ":\n" ++
+           show (HS.prettyPrim ast)
+
+unresolved :: HS.Pretty a => String -> a -> b
+unresolved tag ast = error $
+  "Language.Haskell.TypeCheck.SyntaxDirected." ++ tag ++
+  ": Unresolved: " ++ show (HS.prettyPrim ast)
