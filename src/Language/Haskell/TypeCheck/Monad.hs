@@ -3,6 +3,7 @@
 module Language.Haskell.TypeCheck.Monad where
 
 import           Control.Monad.ST
+import           Control.Monad.Fail
 import           Control.Monad.State
 import           Control.Monad.Except
 import           Data.Map                          (Map)
@@ -94,7 +95,7 @@ data TcState s = TcState
     , tcStatePredicates :: [TcPred s]
     }
 newtype TI s a = TI { unTI :: ExceptT TIError (StateT (TcState s) (ST s)) a }
-    deriving ( Monad, Functor, Applicative, MonadState (TcState s)
+    deriving ( Monad, MonadFail, Functor, Applicative, MonadState (TcState s)
              , MonadError TIError )
 
 liftST :: ST s a -> TI s a
