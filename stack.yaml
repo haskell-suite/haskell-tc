@@ -1,0 +1,14 @@
+resolver: lts-12.26
+
+allow-newer: false
+
+packages:
+- '.'
+
+- location:
+    git: https://github.com/haskell-suite/haskell-scope.git
+    commit: 6a149be78c62248ca4b76fc5279b55c01d548010
+  extra-dep: true
+
+extra-deps:
+- haskell-src-exts-1.21.0

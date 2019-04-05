@@ -17,7 +17,15 @@ Bindings:
       fn3 a [4mz[0m = fn1 z
 
 Proofs:
+coercion: v12
+  fn1 x = fn2 [4mx[0m
+coercion: v12
+      fn3 a z = fn1 [4mz[0m
 coercion: (∀ v12. v12 →  ()) @ v12
   fn1 x = [4mfn2[0m x
+coercion: v12
+  fn1 x = fn2 [4mx[0m
 coercion: (∀ v12. v12 →  ()) @ v12
       fn3 a z = [4mfn1[0m z
+coercion: v12
+      fn3 a z = fn1 [4mz[0m

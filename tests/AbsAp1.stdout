@@ -1,17 +1,31 @@
 Bindings:
+:: * →  *
+  data [4mMaybe[0m a = Just a | Nothing
+:: Λa. a →  AbsAp1.Maybe a
+  data Maybe a = [4mJust[0m a | Nothing
+:: Λa. AbsAp1.Maybe a
+  data Maybe a = Just a | [4mNothing[0m
 :: ∀ v2. v2 →  v2
   [4mid x = x[0m
 :: v2
   id [4mx[0m = x
-:: ∀ sk_3_a. Maybe sk_3_a →  sk_3_a
+:: ∀ sk_3_a. AbsAp1.Maybe sk_3_a →  sk_3_a
   [4mfromJust mb =[0m
   [4m  case mb of[0m
   [4m    Just a -> id a[0m
-:: Maybe sk_3_a
+:: AbsAp1.Maybe sk_3_a
   fromJust [4mmb[0m =
 :: sk_3_a
       Just [4ma[0m -> id a
 
 Proofs:
+coercion: sk_3_a
+      Just a -> id [4ma[0m
+coercion: v2
+  id x = [4mx[0m
+coercion: AbsAp1.Maybe sk_3_a
+    case [4mmb[0m of
 coercion: (∀ v2. v2 →  v2) @ sk_3_a
       Just a -> [4mid[0m a
+coercion: sk_3_a
+      Just a -> id [4ma[0m

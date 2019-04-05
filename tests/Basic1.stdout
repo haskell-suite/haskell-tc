@@ -7,3 +7,13 @@ Bindings:
   twice fn [4mv[0m = fn (fn v)
 
 Proofs:
+coercion: v3
+  twice fn v = fn [4m(fn v)[0m
+coercion: v3
+  twice fn v = fn (fn [4mv[0m)
+coercion: v3 →  v3
+  twice fn v = [4mfn[0m (fn v)
+coercion: v3 →  v3
+  twice fn v = fn ([4mfn[0m v)
+coercion: v3
+  twice fn v = fn (fn [4mv[0m)

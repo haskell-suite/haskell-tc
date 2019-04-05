@@ -290,6 +290,10 @@ tiPat thisPat exp_ty =
       return ()
     PWildCard _ -> return ()
     PParen _ sub -> tiPat sub exp_ty
+    PTuple _ Boxed pats -> do
+      ty <- expectAny exp_ty
+      patTys <- unifyTuple (length pats) ty
+      forM_ (zip patTys pats) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
     PTuple _ Unboxed pats -> do
       ty <- expectAny exp_ty
       patTys <- unifyUnboxedTuple (length pats) ty

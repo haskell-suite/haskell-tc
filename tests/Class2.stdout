@@ -1,21 +1,45 @@
 Bindings:
-:: ∀ v13. v13 →  String
+:: *
+  data [4mString[0m
+:: *
+  data [4mBool[0m = True | False
+:: Class2.Bool
+  data Bool = [4mTrue[0m | False
+:: Class2.Bool
+  data Bool = True | [4mFalse[0m
+:: ∀ v13. v13 →  Class2.String
   [4mfalse x = show False[0m
 :: v13
   false [4mx[0m = show False
-:: ∀ v8. .Show v8 ⇒ (Bool →  v8) →  String
+:: ∀ v8. Class2.Show v8 ⇒ (Class2.Bool →  v8) →  Class2.String
   [4mfalseFn x = show (x False)[0m
-:: Bool →  v8
+:: Class2.Bool →  v8
   falseFn [4mx[0m = show (x False)
-:: ∀ v3. .Show v3 ⇒ v3 →  String
+:: ∀ v3. Class2.Show v3 ⇒ v3 →  Class2.String
   [4mshow' x = show x[0m
 :: v3
   show' [4mx[0m = show x
 
 Proofs:
-coercion: (∀ a. .Show a ⇒ a →  String) @ Bool
+coercion: Class2.Bool
+  false x = show [4mFalse[0m
+coercion: v8
+  falseFn x = show [4m(x False)[0m
+coercion: Class2.Bool
+  falseFn x = show (x [4mFalse[0m)
+coercion: v3
+  show' x = show [4mx[0m
+coercion: (∀ a. Class2.Show a ⇒ a →  Class2.String) @ Class2.Bool
   false x = [4mshow[0m False
-coercion: (∀ a. .Show a ⇒ a →  String) @ v8
+coercion: Class2.Bool
+  false x = show [4mFalse[0m
+coercion: (∀ a. Class2.Show a ⇒ a →  Class2.String) @ v8
   falseFn x = [4mshow[0m (x False)
-coercion: (∀ a. .Show a ⇒ a →  String) @ v3
+coercion: Class2.Bool →  v8
+  falseFn x = show ([4mx[0m False)
+coercion: Class2.Bool
+  falseFn x = show (x [4mFalse[0m)
+coercion: (∀ a. Class2.Show a ⇒ a →  Class2.String) @ v3
   show' x = [4mshow[0m x
+coercion: v3
+  show' x = show [4mx[0m
