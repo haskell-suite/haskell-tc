@@ -1,0 +1,25 @@
+Bindings:
+:: *
+  data [4mBool[0m = True | False
+:: Class5.Bool
+  data Bool = [4mTrue[0m | False
+:: Class5.Bool
+  data Bool = True | [4mFalse[0m
+:: ∀ a. Class5.Default a ⇒ a
+    [4mdef[0m :: a
+:: * →  *
+  data [4mMaybe[0m a = Nothing | Just a
+:: Λa. Class5.Maybe a
+  data Maybe a = [4mNothing[0m | Just a
+:: Λa. a →  Class5.Maybe a
+  data Maybe a = Nothing | [4mJust[0m a
+
+Proofs:
+coercion: Class5.Bool
+    [4mdef = True[0m
+coercion: Class5.Maybe b
+    [4mdef = Nothing[0m
+coercion: Class5.Bool
+    def = [4mTrue[0m
+coercion: (∀ a. Class5.Maybe a) @ b
+    def = [4mNothing[0m

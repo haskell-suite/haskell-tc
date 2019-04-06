@@ -353,6 +353,7 @@ tiDecl decl exp_ty =
     PatBind _ _pat rhs binds -> do
       maybe (return ()) tiBinds binds
       tiRhs rhs exp_ty
+    ClassDecl{} -> return ()
     _ -> unhandledSyntax "tiDecl" decl
 
 declIdent :: Decl (Pin s) -> SrcLoc
@@ -384,9 +385,10 @@ declHeadType dhead =
             var = tcVarFromTyVarBind tyVarBind
         in (tcVars ++ [var], gname, pin)
       _ -> unhandledSyntax "declHeadType" dhead
-  where
-    tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
-    tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
+
+tcVarFromTyVarBind :: TyVarBind (Pin s) -> TcVar
+tcVarFromTyVarBind (KindedVar _ name _) = tcVarFromName name
+tcVarFromTyVarBind (UnkindedVar _ name) = tcVarFromName name
 
 instHeadType :: InstHead (Pin s) -> TI s ([TcType s], Entity)
 instHeadType ihead =
@@ -458,6 +460,7 @@ tiPrepareClassDecl className [tyVar] decl =
         free <- getFreeTyVars [ty']
         setAssumption gname
           (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
+        setProof (ann name) id (TcForall free ([TcIsIn className (TcRef tyVar)] `TcQual` ty'))
     _ -> unhandledSyntax "tiPrepareClassDecl: " decl
 tiPrepareClassDecl _ _ decl =
   unhandledSyntax "tiPrepareClassDecl: " decl
@@ -511,6 +514,84 @@ tiPrepareInstDecl (IRule _ _binds mbCtx instHead) = do
   let instDef = TcQual constraints (TcIsIn className ty)
   addInstance instDef
 
+-- instance Default Bool =>
+--   Bool
+-- instance Default (Maybe a)
+--    forall a. Maybe a
+-- instance Show a => Default (Maybe a) => forall a. Show a => Maybe a
+instRuleType :: InstRule (Pin s) -> TI s (Sigma s, Entity)
+instRuleType (IParen _ instRule) = instRuleType instRule
+instRuleType (IRule _ mbBinds mbCtx instHead) = do
+  let binds = maybe [] (map tcVarFromTyVarBind) mbBinds
+  constraints <- tiMaybe [] contextToPredicates mbCtx
+  ([ty], className) <- instHeadType instHead
+  return (TcForall binds (TcQual constraints ty), className)
+
+
+{-
+class Default a where
+  def :: a
+instance Default Bool where
+  def = True
+instance Default (Maybe b) where
+  def = Nothing
+
+def :: Default a => a
+a = Maybe b
+
+class Weird a where
+  weird :: Weird b => b -> a
+
+weird :: (Weird a, Weird b) => b -> a
+-}
+
+{-
+sigma = forall a b. Default a => b -> a
+tv = [sk_0_a]
+rho = Default sk_0_a => sk_0_a
+
+sigma -> tv -> sigma
+
+instance Show a => Default (Maybe a)
+
+def :: Default a => a
+def :: v0
+v0 = Maybe v1
+
+
+-}
+tiInstDecl :: Decl (Pin s) -> TI s ()
+tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
+  forM_ (fromMaybe [] mbInstDecls) $ \instDecl ->
+    case instDecl of
+      InsDecl _ decl -> do
+        let [binder] = declBinders decl
+        setPredicates []
+        sigma <- findAssumption binder
+
+
+        (instSigma, instClassName) <- instRuleType instRule
+        (instRho, _instRhoToSigma) <- instantiate instSigma
+        (clsPred, TcRef clsTv) <- lookupClass instClassName
+
+        let sigma' = instantiateMethod sigma clsTv
+        meta <- TcMetaVar <$> newTcVar
+        sigma'' <- substituteTyVars [(clsTv, meta)] sigma'
+
+        (tvs, preds, rho, prenexToSigma) <- skolemize sigma''
+
+        unify meta instRho
+
+        checkRho (tiDecl decl) rho
+        afterPreds <- filterM (fmap not . entail preds) =<< mapM lowerPredMetaVars =<< getPredicates
+
+        outer_meta <- getFreeMetaVariables
+        rs <- simplifyAndDeferPredicates outer_meta afterPreds
+
+        unless (null rs) $ throwError ContextTooWeak
+        setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
+      _ -> unhandledSyntax "tiInstDecl" instDecl
+tiInstDecl _ = return ()
 
 {-
 Story about predicates:
@@ -616,11 +697,16 @@ tiBindGroup decls = do
     mapM_ tiPrepareDecl decls
     forM_ scc $ tiDecls . flattenSCC
     forM_ explicitDecls tiExpl
+    mapM_ tiInstDecl decls
   where
     explicitlyTyped =
         [ nameIdentifier name
         | TypeSig _ names _ <- decls
         , name <- names ]
+        -- [ nameIdentifier name
+        -- | ClassDecl _ _ctx _head _funDep (Just clsDecls) <- decls
+        -- , ClsDecl _ (TypeSig _ names _ty) <- clsDecls
+        -- , name <- names ]
     explicitDecls =
         [ (decl, binder)
         | decl <- decls
@@ -638,10 +724,18 @@ tiBindGroup decls = do
 declFreeVariables :: Decl (Pin s) -> [Entity]
 declFreeVariables decl =
     case decl of
-        FunBind _ matches -> concatMap freeMatch matches
-        PatBind _ _pat rhs binds -> freeRhs rhs ++ freeBinds binds
-        _ -> unhandledSyntax "declFreeVariables" decl
+      FunBind _ matches -> concatMap freeMatch matches
+      PatBind _ _pat rhs binds -> freeRhs rhs ++ freeBinds binds
+      ClassDecl _ _ctx _head _funDep _mbDecls -> []
+      _ -> unhandledSyntax "declFreeVariables" decl
   where
+    -- freeClsDecl clsDecl =
+    --   case clsDecl of
+    --     ClsDecl _ decl ->
+    --       case decl of
+    --         TypeSig _ names _ty ->
+    --           [ gname | Pin (Origin (Binding gname) _) _ <- map ann names ]
+    --     _ -> unhandledSyntax "freeClsDecl" clsDecl
     freeBinds Nothing = []
     freeBinds (Just (BDecls _src decls)) = concatMap declFreeVariables decls
     freeBinds _ = error "declFreeVariables, freeBinds"
@@ -691,10 +785,14 @@ nameIdentifier :: Name (Pin s) -> Entity
 nameIdentifier name =
     case info of
         Resolved gname -> gname
+        Binding gname -> gname
         _ -> unresolved "nameIdentifier" name
   where
     Pin (Origin info _) _ = ann name
 
+-- instance Default (Maybe a) where
+--   def = Nothing
+-- def :: Maybe a
 declBinders :: Decl (Pin s) -> [Entity]
 declBinders decl =
     case decl of
@@ -707,15 +805,32 @@ declBinders decl =
         TypeSig{} -> []
         ClassDecl{} -> []
         InstDecl{} -> []
+        -- ClassDecl _ _ctx _head _funDep mbDecls ->
+        --   maybe [] (concatMap classDeclBinders) mbDecls
+        -- InstDecl _ _overlap _rule mbDecls ->
+        --   maybe [] (concatMap instDeclBinders) mbDecls
         InlineSig{} -> []
         _ -> unhandledSyntax "declBinders" decl
+
+instDeclBinders :: InstDecl (Pin s) -> [Entity]
+instDeclBinders instDecl =
+  case instDecl of
+    InsDecl _ decl -> declBinders decl
+    _ -> unhandledSyntax "instDeclBinders" instDecl
+
+classDeclBinders :: ClassDecl (Pin s) -> [Entity]
+classDeclBinders clsDecl =
+  case clsDecl of
+    ClsDecl _ decl ->
+      case decl of
+        TypeSig _ names _ty -> map nameIdentifier names
+        _ -> unhandledSyntax "classDeclBinders.decl" decl
+    _ -> unhandledSyntax "classDeclBinders" clsDecl
 
 patBinders :: Pat (Pin s) -> [Entity]
 patBinders pat =
     case pat of
-        PVar _ name ->
-            let Pin (Origin (Binding gname) _) _ = ann name
-            in [gname]
+        PVar _ name -> [nameIdentifier name]
         _ -> unhandledSyntax "patBinders" pat
 
 tiModule :: Module (Pin s) -> TI s ()

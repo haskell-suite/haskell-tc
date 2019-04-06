@@ -3,6 +3,7 @@
 module Language.Haskell.TypeCheck.Monad where
 
 import           Control.Monad.ST
+import           Control.Monad.ST.Unsafe
 import           Control.Monad.Fail
 import           Control.Monad.State
 import           Control.Monad.Except
@@ -103,12 +104,15 @@ liftST action = TI $ ExceptT $ StateT $ \env -> do
   a <- action
   return (Right a,env)
 
+instance MonadIO (TI s) where
+  liftIO io = liftST (unsafeIOToST io)
+
 tiMaybe :: b -> (a -> TI s b) -> Maybe a -> TI s b
 tiMaybe def _ Nothing = pure def
 tiMaybe _ fn (Just a) = fn a
 
 debug :: String -> TI s ()
-debug str = trace str (return ())
+debug str = liftIO (putStrLn str)
 
 
 

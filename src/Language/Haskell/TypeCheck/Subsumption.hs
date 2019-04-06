@@ -29,6 +29,11 @@ instantiate orig@(TcForall tvs (TcQual preds ty)) = do
 -- instantiate TcForall{} = error "instantiate: Predicate not supported yet."
 instantiate tau = return (tau, id)
 
+instantiateMethod :: Sigma s -> TcVar -> Sigma s
+instantiateMethod (TcForall tvs (TcQual pred ty)) tv =
+  TcForall (delete tv tvs) (TcQual [ elt | elt@(TcIsIn _cls (TcRef pTV)) <- pred, pTV /= tv ] ty)
+instantiateMethod sigma tv = sigma
+
 {-
 skolemize sigma = /\a.rho + f::/\a.rho -> sigma
 

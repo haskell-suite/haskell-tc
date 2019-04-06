@@ -46,6 +46,7 @@ unitTests =
   , typeTest "Class2"
   , typeTest "Class3"
   , typeTest "Class4"
+  , typeTest "Class5"
   , typeTest "Append"
   , typeTest "Map"
   , typeTest "AbsAp1"

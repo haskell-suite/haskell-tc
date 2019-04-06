@@ -1,6 +1,8 @@
 Bindings:
 :: *
   data [4mString[0m
+:: ∀ a. Class4.Show a ⇒ a →  Class4.String
+    [4mshow[0m :: a -> String
 :: ∀ v10 v9. Class4.Show v10 ⇒ v10 →  v9 →  (Class4.String
                                             ,v9)
   [4mfn1 x y = (fn2 x, y)[0m

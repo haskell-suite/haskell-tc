@@ -1,6 +1,10 @@
 Bindings:
 :: *
   data [4mString[0m
+:: ∀ a. Class1.Show a ⇒ a →  Class1.String
+    [4mshow[0m :: a -> String
+:: ∀ m a. Class1.Monad m ⇒ a →  m a
+    [4mreturn[0m :: a -> m a
 :: ∀ v3 v5. Class1.Monad v3 ⇒ v5 →  v3 [v5]
   [4mlist x = return [x][0m
 :: v5

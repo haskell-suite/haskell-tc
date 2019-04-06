@@ -7,6 +7,8 @@ Bindings:
   data Bool = [4mTrue[0m | False
 :: Class2.Bool
   data Bool = True | [4mFalse[0m
+:: ∀ a. Class2.Show a ⇒ a →  Class2.String
+    [4mshow[0m :: a -> String
 :: ∀ v13. v13 →  Class2.String
   [4mfalse x = show False[0m
 :: v13
