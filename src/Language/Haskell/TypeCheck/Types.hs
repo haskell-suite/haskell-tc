@@ -151,6 +151,8 @@ instance P.Pretty (TcType s) where
         Doc.brackets (P.pretty ty)
       TcUndefined ->
         Doc.red (Doc.text "undefined")
+      TcStar ->
+        Doc.text "*"
 
 instance P.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident

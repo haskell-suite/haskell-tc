@@ -562,34 +562,61 @@ v0 = Maybe v1
 -}
 tiInstDecl :: Decl (Pin s) -> TI s ()
 tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
+  (instSigma_, instClassName) <- instRuleType instRule
+  instSigma <- explicitTcForall instSigma_
+  -- debug $ "instSigma = " ++ show (Doc.pretty instSigma)
+  setProof (ann instRule) id instSigma
+
+  (_, instPreds, tmpRho, _tmpToSigma) <- skolemize instSigma
+  -- debug $ "tmpRho = " ++ show (Doc.pretty tmpRho)
+  -- debug $ "instPreds = " ++ show (Doc.pretty instPreds)
+  setPredicates instPreds
+
+  (clsPred, TcRef clsTv) <- lookupClass instClassName
+
   forM_ (fromMaybe [] mbInstDecls) $ \instDecl ->
     case instDecl of
       InsDecl _ decl -> do
         let [binder] = declBinders decl
-        setPredicates []
+
         sigma <- findAssumption binder
-
-
-        (instSigma, instClassName) <- instRuleType instRule
-        (instRho, _instRhoToSigma) <- instantiate instSigma
-        (clsPred, TcRef clsTv) <- lookupClass instClassName
+        -- debug $ "sigma = " ++ show (Doc.pretty sigma)
 
         let sigma' = instantiateMethod sigma clsTv
         meta <- TcMetaVar <$> newTcVar
         sigma'' <- substituteTyVars [(clsTv, meta)] sigma'
 
-        (tvs, preds, rho, prenexToSigma) <- skolemize sigma''
+        -- debug $ "sigma'' = " ++ show (Doc.pretty sigma'')
 
-        unify meta instRho
+        unify meta tmpRho
 
-        checkRho (tiDecl decl) rho
-        afterPreds <- filterM (fmap not . entail preds) =<< mapM lowerPredMetaVars =<< getPredicates
+        -- debug $ "sigma'' = " ++ show (Doc.pretty sigma'')
 
-        outer_meta <- getFreeMetaVariables
-        rs <- simplifyAndDeferPredicates outer_meta afterPreds
+        (tvs, preds, genRho, prenexToSigma) <- skolemize sigma''
+
+        addPredicates preds
+
+        -- debug $ "preds = " ++ show (Doc.pretty preds)
+        -- debug $ "genRho = " ++ show (Doc.pretty genRho)
+
+        predsAfter <- mapM lowerPredMetaVars =<< getPredicates
+
+        -- debug $ "predsAfter = " ++ show (Doc.pretty predsAfter)
+
+        checkRho (tiDecl decl) genRho
+        afterPreds <- filterM (fmap not . entail (instPreds++preds)) =<< mapM lowerPredMetaVars =<< getPredicates
+
+        -- debug $ "afterPreds = " ++ show (Doc.pretty afterPreds)
+
+        rs <- simplifyAndDeferPredicates [] afterPreds
+
+        -- debug $ "rs = " ++ show (Doc.pretty rs)
 
         unless (null rs) $ throwError ContextTooWeak
-        setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
+
+        ret <- explicitTcForall genRho
+
+        setProof (ann decl) (prenexToSigma) ret
       _ -> unhandledSyntax "tiInstDecl" instDecl
 tiInstDecl _ = return ()
 

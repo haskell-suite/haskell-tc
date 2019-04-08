@@ -24,6 +24,8 @@ Bindings:
 
 Proofs:
 coercion: Class2.Bool
+  instance [4mShow Bool[0m
+coercion: Class2.Bool
   false x = show [4mFalse[0m
 coercion: v8
   falseFn x = show [4m(x False)[0m

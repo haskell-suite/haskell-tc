@@ -23,6 +23,7 @@ import           Language.Haskell.Scope as Scope
 import           Language.Haskell.TypeCheck.Proof
 import           Language.Haskell.TypeCheck.Types  hiding (Type (..))
 import qualified Language.Haskell.TypeCheck.Types  as T
+import qualified Language.Haskell.TypeCheck.Pretty      as Doc
 
 import           Debug.Trace
 
@@ -223,6 +224,7 @@ unpinAST = traverse unpin
       case mbProof of
         Nothing -> return $ Scoped nameinfo srcspan
         Just proof -> do
+          -- debug (show nameinfo)
           zonked <- simplifyProof <$> zonkProof proof
           pure $ Coerced nameinfo srcspan zonked
           -- if isTrivial zonked && not (isBinding nameinfo)
@@ -275,7 +277,8 @@ lookupInstances className = do
          , thisClassName == className ]
 
 zonkType :: TcType s -> TI s T.Type
-zonkType ty =
+zonkType ty = do
+  -- debug $ "Zonk: " ++ show (Doc.pretty ty)
   case ty of
     TcForall tyvars (TcQual predicates tty) ->
       T.TyForall tyvars <$> ((:=>) <$> mapM zonkPredicate predicates <*> zonkType tty)

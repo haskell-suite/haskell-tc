@@ -68,7 +68,7 @@ quantify env_tvs predicates rho = do
     let meta = rho_tvs \\ env_tvs
         tvs = map toTcVar meta
     -- debug $ "        : " ++ show meta
-    -- rho' <- substituteMetaVars (zip meta tvs) rho
+    -- rho' <- substituteMetaVars (zip meta (map TcRef tvs)) rho
     -- forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
     return (TcForall tvs (TcQual predicates rho), tvs)
   where

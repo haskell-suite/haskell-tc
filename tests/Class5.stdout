@@ -16,10 +16,18 @@ Bindings:
 
 Proofs:
 coercion: Class5.Bool
+  instance [4mDefault Bool[0m where
+coercion: Class5.Bool
     [4mdef = True[0m
-coercion: Class5.Maybe b
-    [4mdef = Nothing[0m
+coercion: ∀ b. Class5.Default b ⇒ Class5.Maybe b
+  instance [4mDefault b => Default (Maybe b)[0m where
+coercion: ∀ sk_1_b. Class5.Maybe sk_1_b
+    [4mdef = Just def[0m
+coercion: sk_1_b
+    def = Just [4mdef[0m
 coercion: Class5.Bool
     def = [4mTrue[0m
-coercion: (∀ a. Class5.Maybe a) @ b
-    def = [4mNothing[0m
+coercion: (∀ a. a →  Class5.Maybe a) @ sk_1_b
+    def = [4mJust[0m def
+coercion: (∀ a. Class5.Default a ⇒ a) @ sk_1_b
+    def = Just [4mdef[0m

@@ -9,5 +9,5 @@ instance Default Bool where
   def = True
 
 data Maybe a = Nothing | Just a
-instance Default (Maybe b) where
-  def = Nothing
+instance Default b => Default (Maybe b) where
+  def = Just def
