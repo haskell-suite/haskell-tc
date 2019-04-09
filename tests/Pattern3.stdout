@@ -1,0 +1,19 @@
+Bindings:
+:: * →  *
+  data [4mList[0m a = Nil | Cons a (List a)
+:: Λa. Pattern2.List a
+  data List a = [4mNil[0m | Cons a (List a)
+:: Λa. a →  Pattern2.List a →  Pattern2.List a
+  data List a = Nil | [4mCons[0m a (List a)
+:: ∀ v3. Pattern2.List v3 →  Pattern2.List v3
+  [4mdrop1 ( x `Cons` xs) = xs[0m
+:: v3
+  drop1 ( [4mx[0m `Cons` xs) = xs
+:: Pattern2.List v3
+  drop1 ( x `Cons` [4mxs[0m) = xs
+
+Proofs:
+coercion: (∀ a. a →  Pattern2.List a →  Pattern2.List a) @ v3
+  drop1 ( x [4m`Cons`[0m xs) = xs
+coercion: Pattern2.List v3
+  drop1 ( x `Cons` xs) = [4mxs[0m

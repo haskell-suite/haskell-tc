@@ -55,6 +55,9 @@ unitTests =
   , typeTest "AbsAp3"
   , typeTest "AbsAp4"
   , typeTest "InlinePragma"
+  , typeTest "Pattern1"
+  , typeTest "Pattern2"
+  , typeTest "Pattern3"
   ]
 
 typeTest :: String -> Test

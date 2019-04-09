@@ -5,3 +5,7 @@ Bindings:
   [4my () = ()[0m
 
 Proofs:
+coercion: ()
+  x [4m()[0m = ()
+coercion: ()
+  y [4m()[0m = ()

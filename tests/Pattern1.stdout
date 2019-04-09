@@ -1,0 +1,20 @@
+Bindings:
+:: *
+  data [4mBool[0m = False | True
+:: Pattern1.Bool
+  data Bool = [4mFalse[0m | True
+:: Pattern1.Bool
+  data Bool = False | [4mTrue[0m
+:: Pattern1.Bool →  Pattern1.Bool
+  [4mnot True = False[0m
+  [4mnot False = True[0m
+
+Proofs:
+coercion: Pattern1.Bool
+  not [4mTrue[0m = False
+coercion: Pattern1.Bool
+  not [4mFalse[0m = True
+coercion: Pattern1.Bool
+  not True = [4mFalse[0m
+coercion: Pattern1.Bool
+  not False = [4mTrue[0m

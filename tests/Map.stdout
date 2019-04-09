@@ -20,6 +20,10 @@ Bindings:
       Cons x [4mxs[0m -> Cons (f x) (map f xs)
 
 Proofs:
+coercion: (∀ a. Main.List a) @ sk_0_a
+      [4mNil[0m -> Nil
+coercion: (∀ a. a →  Main.List a →  Main.List a) @ sk_0_a
+      [4mCons[0m x xs -> Cons (f x) (map f xs)
 coercion: sk_1_b
       Cons x xs -> Cons [4m(f x)[0m (map f xs)
 coercion: sk_0_a

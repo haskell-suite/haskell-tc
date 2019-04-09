@@ -50,7 +50,7 @@ tiLit lit exp_ty = do
     Char{} -> return $ TcCon (mkBuiltIn "LHC.Prim" "Char")
     String{} -> return $ TcList $ TcCon (mkBuiltIn "LHC.Prim" "Char")
     _ -> unhandledSyntax "tiLit" lit
-  _coercion <- instSigma ty exp_ty
+  unifyExpected ty exp_ty
   -- Hm, what to do with the proof here. We need it for overloaded constants
   -- such as numbers and Strings (iff OverloadedStrings enabled).
   -- For now we can just ignore it.
@@ -82,7 +82,7 @@ tiStmts (stmt:stmts) exp_ty =
 
       checkSigma (ann pat) (tiPat pat) a
       checkSigma (ann expr) (tiExp expr) ioA
-      _coercion <- instSigma res_ty exp_ty
+      unifyExpected res_ty exp_ty
 
       setProof pin proof bindIOSig
 
@@ -96,7 +96,7 @@ tiStmts (stmt:stmts) exp_ty =
       (ioA, _aIOb, res_ty) <- unifyFun2 thenIORho
 
       checkSigma (ann expr) (tiExp expr) ioA
-      _coercion <- instSigma res_ty exp_ty
+      unifyExpected res_ty exp_ty
 
       setProof pin proof thenIOSig
 
@@ -191,15 +191,13 @@ tiExp expr exp_ty =
       (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
       checkSigma (ann a) (tiExp a) a_ty
       checkSigma (ann b) (tiExp b) b_ty
-      _coercion <- instSigma res_ty exp_ty
-      return ()
+      unifyExpected res_ty exp_ty
     InfixApp _ a (QVarOp _ qname) b -> do
       fnTy <- inferRho (tiQName qname)
       (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
       checkSigma (ann a) (tiExp a) a_ty
       checkSigma (ann b) (tiExp b) b_ty
-      _coercion <- instSigma res_ty exp_ty
-      return ()
+      unifyExpected res_ty exp_ty
       -- a `fn` b :: exp_ty
       -- fn :: a -> b -> exp_ty
     App _ fn a -> do
@@ -209,11 +207,7 @@ tiExp expr exp_ty =
       let pin = ann a
       checkSigma pin (tiExp a) arg_ty
 
-      -- debug $ "App pin: " ++ show pin
-      -- setProof pin argCoercion arg_ty
-      _coercion <- instSigma res_ty exp_ty
-      -- Hm, what to do with the coercion?
-      return ()
+      unifyExpected res_ty exp_ty
     -- InfixApp _ a op b -> do
     --     ty <- TcMetaVar <$> newTcVar
     --     opT <- tiQOp op
@@ -283,11 +277,11 @@ tiPat thisPat exp_ty =
     -- con pat1 pat2 ...
     PApp _ con pats -> do
       conSig <- findConAssumption con
-      (conTy, _coercion) <- instantiate conSig
+      (conTy, coercion) <- instantiate conSig
       (patTys, retTy) <- unifyFuns (length pats) conTy
       forM_ (zip patTys pats) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
-      _coercion <- instSigma retTy exp_ty
-      return ()
+      unifyExpected retTy exp_ty
+      setProof (ann con) coercion conSig
     PWildCard _ -> return ()
     PParen _ sub -> tiPat sub exp_ty
     PTuple _ Boxed pats -> do
@@ -305,11 +299,11 @@ tiPat thisPat exp_ty =
       forM_ pats $ \pat' -> checkRho (tiPat pat') eltTy
     PInfixApp _ a con b -> do
       conSig <- findConAssumption con
-      (conTy, _coercion) <- instantiate conSig
+      (conTy, coercion) <- instantiate conSig
       (patTys, retTy) <- unifyFuns 2 conTy
       forM_ (zip patTys [a,b]) $ \(patTy, pat) -> checkRho (tiPat pat) patTy
-      _coercion <- instSigma retTy exp_ty
-      return ()
+      unifyExpected retTy exp_ty
+      setProof (ann con) coercion conSig
     _ -> unhandledSyntax "tiPat" thisPat
 
 tiRhs :: Rhs (Pin s) -> ExpectedRho s -> TI s ()
