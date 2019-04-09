@@ -516,16 +516,25 @@ tiPrepareInstDecl (IRule _ _binds mbCtx instHead) = do
 
 -- instance Default Bool =>
 --   Bool
+--   Default Bool
+--   Default
 -- instance Default (Maybe a)
 --    forall a. Maybe a
--- instance Show a => Default (Maybe a) => forall a. Show a => Maybe a
-instRuleType :: InstRule (Pin s) -> TI s (Sigma s, Entity)
+--    forall a. Default (Maybe a)
+--    Default
+-- instance Show a => Default (Maybe a)
+--   forall a. Show a => Maybe a
+--   forall a. Show a => Default (Maybe a)
+--   Default
+instRuleType :: InstRule (Pin s) -> TI s (Sigma s, Sigma s, Entity)
 instRuleType (IParen _ instRule) = instRuleType instRule
 instRuleType (IRule _ mbBinds mbCtx instHead) = do
   let binds = maybe [] (map tcVarFromTyVarBind) mbBinds
   constraints <- tiMaybe [] contextToPredicates mbCtx
   ([ty], className) <- instHeadType instHead
-  return (TcForall binds (TcQual constraints ty), className)
+  tyDef <- explicitTcForall $ TcForall binds (TcQual constraints ty)
+  instDef <- explicitTcForall $ TcForall binds (TcQual constraints (TcCon (entityName className) `TcApp` ty))
+  return (tyDef,instDef,className)
 
 
 {-
@@ -562,10 +571,9 @@ v0 = Maybe v1
 -}
 tiInstDecl :: Decl (Pin s) -> TI s ()
 tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
-  (instSigma_, instClassName) <- instRuleType instRule
-  instSigma <- explicitTcForall instSigma_
+  (instSigma, instDef, instClassName) <- instRuleType instRule
   -- debug $ "instSigma = " ++ show (Doc.pretty instSigma)
-  setProof (ann instRule) id instSigma
+  setProof (ann instRule) id instDef
 
   (_, instPreds, tmpRho, _tmpToSigma) <- skolemize instSigma
   -- debug $ "tmpRho = " ++ show (Doc.pretty tmpRho)

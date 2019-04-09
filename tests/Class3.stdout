@@ -13,8 +13,8 @@ Bindings:
   byInst a [4mb[0m = super (a,b)
 
 Proofs:
-coercion: ∀ b a. (Class3.Super a, Class3.Super b) ⇒ (a
-                                                    ,b)
+coercion: ∀ b a. (Class3.Super a, Class3.Super b) ⇒ Class3.Super (a
+                                                                 ,b)
   instance [4m(Super a, Super b) => Super (a,b)[0m
 coercion: sk_21_a
   super x = super [4mx[0m

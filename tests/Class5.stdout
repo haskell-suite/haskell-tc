@@ -15,11 +15,11 @@ Bindings:
   data Maybe a = Nothing | [4mJust[0m a
 
 Proofs:
-coercion: Class5.Bool
+coercion: Class5.Default Class5.Bool
   instance [4mDefault Bool[0m where
 coercion: Class5.Bool
     [4mdef = True[0m
-coercion: ∀ b. Class5.Default b ⇒ Class5.Maybe b
+coercion: ∀ b. Class5.Default b ⇒ Class5.Default (Class5.Maybe b)
   instance [4mDefault b => Default (Maybe b)[0m where
 coercion: ∀ sk_1_b. Class5.Maybe sk_1_b
     [4mdef = Just def[0m

@@ -13,7 +13,7 @@ Bindings:
     plus = \a [4mb[0m -> Nothing
 
 Proofs:
-coercion: ∀ a. Class6.Maybe a
+coercion: ∀ a. Class6.Plus (Class6.Maybe a)
   instance [4mPlus (Maybe a)[0m where
 coercion: ∀ sk_0_a. Class6.Maybe sk_0_a →  Class6.Maybe sk_0_a →  Class6.Maybe sk_0_a
     [4mplus = \a b -> Nothing[0m
