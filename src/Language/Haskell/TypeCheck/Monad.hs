@@ -25,8 +25,6 @@ import           Language.Haskell.TypeCheck.Types  hiding (Type (..))
 import qualified Language.Haskell.TypeCheck.Types  as T
 import qualified Language.Haskell.TypeCheck.Pretty      as Doc
 
-import           Debug.Trace
-
 {-
 TcQual [] (TcIsIn Show a)
 class Show a
@@ -191,7 +189,8 @@ newUnique = do
 --     nub . concat <$> mapM metaVariables (Map.elems m)
 
 setAssumption :: Entity -> TcType s -> TI s ()
-setAssumption ident tySig = -- trace (show (P.pretty ident) ++ " :: " ++ show (P.pretty tySig)) $
+setAssumption ident tySig = do
+  -- debug $ "SetAssumption: " ++ show (Doc.pretty ident) ++ " :: " ++ show (Doc.pretty tySig)
   modify $ \env ->
     env{ tcStateValues = Map.insert ident tySig (tcStateValues env) }
 
@@ -203,7 +202,9 @@ findAssumption ident = do
         Just scheme -> return scheme
 
 setProof :: Pin s -> TcCoercion s -> TcType s -> TI s ()
-setProof (Pin _ ref) coercion src = liftST $ do
+setProof (Pin _ ref) coercion src = do
+  -- debug $ "SetProof: " ++ show (Doc.pretty src)
+  liftST $ do
     mbProof <- readSTRef ref
     case mbProof of
       Nothing -> writeSTRef ref (Just $ coercion $ TcProofSrc src)

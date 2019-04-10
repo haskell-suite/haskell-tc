@@ -9,7 +9,6 @@ import Control.Monad.Except
 import Data.STRef
 
 import qualified Language.Haskell.TypeCheck.Pretty as P
-import Debug.Trace
 
 unifyExpected :: Tau s -> ExpectedRho s -> TI s ()
 unifyExpected tau exp_ty =
@@ -49,18 +48,22 @@ unifyMetaVar a@(TcMetaRef _ident ref) rightTy = do
         Nothing -> unifyUnboundVar a rightTy
 
 unifyUnboundVar :: TcMetaVar s -> TcType s -> TI s ()
-unifyUnboundVar tv@(TcMetaRef _ident ref) bTy@(TcMetaVar b@(TcMetaRef _ refB)) = do
+unifyUnboundVar tv bTy@(TcMetaVar b@(TcMetaRef _ refB)) = do
     mbSubst <- liftST $ readSTRef refB
     case mbSubst of
         Just ty -> unify (TcMetaVar tv) ty
-        Nothing -> -- trace (show (P.pretty tv) ++ " = " ++ show (P.pretty bTy)) $
-          liftST $ writeSTRef ref (Just $ TcMetaVar b)
-unifyUnboundVar tv@(TcMetaRef _ident ref) b = do
+        Nothing -> do
+          -- debug $ "unify " ++ show (P.pretty tv) ++ " = " ++ show (P.pretty bTy)
+          -- liftST $ writeSTRef ref (Just $ TcMetaVar b)
+          writeMetaVar tv (TcMetaVar b)
+unifyUnboundVar tv b = do
     tvs <- getMetaTyVars [b]
     if tv `elem` tvs
         then throwError $ UnificationError "occurs check failed"
-        else --trace (show (P.pretty tv) ++ " = " ++ show (P.pretty b)) $
-          liftST $ writeSTRef ref (Just b)
+        else do
+          -- debug $ "unify " ++ show (P.pretty tv) ++ " = " ++ show (P.pretty b)
+          -- liftST $ writeSTRef ref (Just b)
+          writeMetaVar tv b
 
 unifyFun :: Rho s -> TI s (Sigma s, Rho s)
 unifyFun (TcFun a b) = return (a,b)

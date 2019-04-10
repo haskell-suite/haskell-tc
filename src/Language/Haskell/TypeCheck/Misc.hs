@@ -161,11 +161,13 @@ substituteMetaVarsPred var (TcIsIn cls ty) =
 
 
 writeMetaVar :: TcMetaVar s -> TcType s -> TI s ()
-writeMetaVar (TcMetaRef _name var) ty = liftST $ do
-  mbVal <- readSTRef var
-  case mbVal of
-    Nothing -> writeSTRef var (Just ty)
-    Just{}  -> error "writeMetaVar: Variable already set."
+writeMetaVar (TcMetaRef name var) ty = do
+  -- debug $ "write " ++ name ++ " = " ++ show (Doc.pretty ty)
+  liftST $ do
+    mbVal <- readSTRef var
+    case mbVal of
+      Nothing -> writeSTRef var (Just ty)
+      Just{}  -> error "writeMetaVar: Variable already set."
 
 expectAny :: ExpectedRho s -> TI s (Rho s)
 expectAny (Check rho) = return rho

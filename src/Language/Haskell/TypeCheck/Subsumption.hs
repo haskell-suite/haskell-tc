@@ -12,9 +12,8 @@ import Data.List
 import Data.STRef
 
 import qualified Language.Haskell.TypeCheck.Pretty as P
-import Debug.Trace
 
-
+-- coercion :: sigma -> rho
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
 instantiate (TcForall [] (TcQual [] ty)) = do
   -- debug $ "Instatiate: Silly forall"
@@ -108,13 +107,13 @@ checkSigma pin action sigma = do
   -- esc_tvs <- getFreeTyVars (sigma : env_tys)
   -- let bad_tvs = filter (`elem` esc_tvs) skol_tvs
   -- unless (null bad_tvs) $ error $ "Type not polymorphic enough: " ++ show (P.pretty bad_tvs)
-  let coercion = tcProofAbs skol_tvs
-  setProof pin coercion rho
+  -- let coercion = tcProofAbs skol_tvs
+  setProof pin p rho
 
 -- Rule DEEP-SKOL
 -- subsCheck offered_type expected_type
 -- coercion :: Sigma1 -> Sigma2
-subsCheck :: TcType s -> TcType s -> TI s (TcCoercion s)
+subsCheck :: Sigma s -> Sigma s -> TI s (TcCoercion s)
 subsCheck sigma1 sigma2 = do
   -- debug $ "subsCheck: " ++ show (P.pretty sigma1) ++ " >> " ++ show (P.pretty sigma2)
   (skol_tvs, _preds, rho2, forallrho2ToSigma2) <- skolemize sigma2
@@ -139,19 +138,12 @@ subsCheck sigma1 sigma2 = do
 subsCheckRho :: Sigma s -> Rho s -> TI s (TcCoercion s)
 subsCheckRho sigma1@TcForall{} rho2 = do
   (rho1, sigma1ToRho1) <- instantiate sigma1
-  rho1ToRho2 <- subsCheckRho rho1 rho2
+  rho1ToRho2 <- subsCheckRhoRho rho1 rho2
   let sigma1ToRho2 = rho1ToRho2 . sigma1ToRho1
   return sigma1ToRho2
-subsCheckRho t1 (TcFun a2 r2) = do
-  (a1, r1) <- unifyFun t1
-  subsCheckFun a1 r1 a2 r2
-subsCheckRho (TcFun a1 r1) t2 = do
-  (a2, r2) <- unifyFun t2
-  subsCheckFun a1 r1 a2 r2
-subsCheckRho tau1 tau2 = do
-  unify tau1 tau2
-  return id
+subsCheckRho t1 t2 = subsCheckRhoRho t1 t2
 
+-- coercion :: rho1 -> rho2
 subsCheckRhoRho :: Rho s -> Rho s -> TI s (TcCoercion s)
 subsCheckRhoRho (TcFun a1 r1) t2 = do
   (a2, r2) <- unifyFun t2

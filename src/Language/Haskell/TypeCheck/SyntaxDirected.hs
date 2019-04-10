@@ -651,6 +651,7 @@ tiExpl (decl, binder) = do
   -- debug $ "tiExpl: " ++ "Kept: " ++ show (Doc.pretty rs)
   unless (null rs) $ throwError ContextTooWeak
   setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
+  -- setProof (ann decl) id sigma
 
 {-
 Predicates:
