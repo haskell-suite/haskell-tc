@@ -52,18 +52,12 @@ unifyUnboundVar tv bTy@(TcMetaVar b@(TcMetaRef _ refB)) = do
     mbSubst <- liftST $ readSTRef refB
     case mbSubst of
         Just ty -> unify (TcMetaVar tv) ty
-        Nothing -> do
-          -- debug $ "unify " ++ show (P.pretty tv) ++ " = " ++ show (P.pretty bTy)
-          -- liftST $ writeSTRef ref (Just $ TcMetaVar b)
-          writeMetaVar tv (TcMetaVar b)
+        Nothing -> writeMetaVar tv (TcMetaVar b)
 unifyUnboundVar tv b = do
     tvs <- getMetaTyVars [b]
     if tv `elem` tvs
         then throwError $ UnificationError "occurs check failed"
-        else do
-          -- debug $ "unify " ++ show (P.pretty tv) ++ " = " ++ show (P.pretty b)
-          -- liftST $ writeSTRef ref (Just b)
-          writeMetaVar tv b
+        else writeMetaVar tv b
 
 unifyFun :: Rho s -> TI s (Sigma s, Rho s)
 unifyFun (TcFun a b) = return (a,b)

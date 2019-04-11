@@ -594,7 +594,7 @@ tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
 
         -- debug $ "sigma'' = " ++ show (Doc.pretty sigma'')
 
-        (tvs, preds, genRho, prenexToSigma) <- skolemize sigma''
+        (tvs, preds, genRho, _prenexToSigma) <- skolemize sigma''
 
         addPredicates preds
 
@@ -618,7 +618,7 @@ tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
 
         ret <- explicitTcForall genRho
 
-        setProof (ann decl) (prenexToSigma) ret
+        setProof (ann decl) id ret
       _ -> unhandledSyntax "tiInstDecl" instDecl
 tiInstDecl _ = return ()
 
@@ -641,6 +641,7 @@ tiExpl (decl, binder) = do
   sigma <- findAssumption binder
   -- Hm, we need to do something with the 'tvs' but I can't see what.
   (tvs, preds, rho, prenexToSigma) <- skolemize sigma
+  -- debug $ "tiExpl: " ++ show (Doc.pretty binder) ++ " :: " ++ show (Doc.pretty sigma)
   -- debug $ "tiExpl: " ++ show (Doc.pretty binder) ++ " :: " ++ show (Doc.pretty rho)
   -- debug $ "tiExpl: " ++ "Before: " ++ show (Doc.pretty preds)
   checkRho (tiDecl decl) rho
@@ -651,7 +652,6 @@ tiExpl (decl, binder) = do
   -- debug $ "tiExpl: " ++ "Kept: " ++ show (Doc.pretty rs)
   unless (null rs) $ throwError ContextTooWeak
   setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
-  -- setProof (ann decl) id sigma
 
 {-
 Predicates:

@@ -101,14 +101,15 @@ inferRho action = do
 checkSigma :: Pin s -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma pin action sigma = do
   -- debug $ "CheckSigma: " ++ show (P.pretty sigma)
-  (skol_tvs, _preds, rho, p) <- skolemize sigma
+  (rho, rhoToSigma) <- instantiate sigma
+  -- (_skol_tvs, _preds, rho, prenexToSigma) <- skolemize sigma
   checkRho action rho
   -- env_tys <- getEnvTypes
   -- esc_tvs <- getFreeTyVars (sigma : env_tys)
   -- let bad_tvs = filter (`elem` esc_tvs) skol_tvs
   -- unless (null bad_tvs) $ error $ "Type not polymorphic enough: " ++ show (P.pretty bad_tvs)
   -- let coercion = tcProofAbs skol_tvs
-  setProof pin p rho
+  setProof pin rhoToSigma rho
 
 -- Rule DEEP-SKOL
 -- subsCheck offered_type expected_type
