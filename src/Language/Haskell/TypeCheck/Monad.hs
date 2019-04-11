@@ -208,7 +208,7 @@ setProof (Pin _ ref) coercion src = do
     mbProof <- readSTRef ref
     case mbProof of
       Nothing -> writeSTRef ref (Just $ coercion $ TcProofSrc src)
-      Just proof -> writeSTRef ref (Just $ coercion proof)
+      Just{} -> error "Proof already set"
 
 pinAST :: Module Origin -> TI s (Module (Pin s))
 pinAST = liftST . traverse newPin

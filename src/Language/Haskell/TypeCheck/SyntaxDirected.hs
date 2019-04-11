@@ -242,8 +242,6 @@ tiExp expr exp_ty =
       tiExp subExpr exp_ty
     List pin exprs -> do
       eltTy <- unifyList =<< expectList exp_ty
-      -- setProof pin (`TcProofAp` [eltTy]) eltTy
-      -- setProof pin id (TcList eltTy)
       setProof pin (`TcProofAp` [eltTy]) listSigma
       forM_ exprs $ \expr' -> checkRho (tiExp expr') eltTy
     Do _ stmts -> tiStmts stmts exp_ty
