@@ -50,8 +50,9 @@ test-suite spec
                          ansi-wl-pprint >=0.6 && <0.7,
                          pretty >=1.1 && <1.2,
                          haskell-tc,
-                         directory, filepath,
-                         test-framework,
-                         test-framework-hunit
+                         directory, filepath, text, bytestring,
+                         tasty,
+                         tasty-golden,
+                         tasty-expected-failure
   default-language: Haskell2010
   ghc-options: -Wall -Werror

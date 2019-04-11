@@ -1,8 +1,11 @@
 module Main (main) where
 
-import           Control.Monad                     (fmap, mplus, when)
+import           Control.Monad                     (when)
+import qualified Data.ByteString.Lazy              as BL
 import           Data.Foldable                     (foldMap)
-import           Data.List                         (nub)
+import           Data.List                         (nub, sort)
+import qualified Data.Text                         as T
+import qualified Data.Text.Encoding                as T
 import           Language.Haskell.Exts             hiding (name)
 import           Language.Haskell.Scope            (emptyResolveEnv, resolve)
 import qualified Language.Haskell.Scope            as Scope
@@ -11,15 +14,18 @@ import qualified Language.Haskell.TypeCheck.Pretty as P
 import           System.Directory                  (doesFileExist)
 import           System.Environment                (getArgs)
 import           System.Exit                       (ExitCode (..), exitWith)
-import           System.FilePath                   (replaceExtension, (<.>),
-                                                    (</>))
+import           System.FilePath                   (replaceExtension,
+                                                    takeBaseName)
 import           System.IO                         (hPutStrLn, stderr)
-import           Test.Framework                    (Test, defaultMain)
-import           Test.Framework.Providers.HUnit
 import           Text.PrettyPrint.ANSI.Leijen      (Doc, indent, text,
                                                     underline, vsep, (<+>),
                                                     (<>))
 import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
+
+import           Test.Tasty
+import           Test.Tasty.ExpectedFailure
+import           Test.Tasty.Golden
+
 
 main :: IO ()
 main = do
@@ -37,37 +43,21 @@ main = do
             putStr msg
             exitWith ExitSuccess
     _ -> return ()
-  defaultMain unitTests
+  goldenFiles <- sort <$> findByExtension [".stdout"] "tests"
+  defaultMain $ testGroup "Tests"
+    [ (if testName `elem` ignoreList
+        then ignoreTest
+        else id)
+      (goldenVsText testName goldenFile (getTcInfo' testFile))
+    | goldenFile <- goldenFiles
+    , let testFile = replaceExtension goldenFile "hs"
+    , let testName = takeBaseName goldenFile
+    ]
+  where
+    ignoreList = []
 
-unitTests :: [Test]
-unitTests =
-  [ typeTest "Basic1"
-  , typeTest "Class1"
-  , typeTest "Class2"
-  , typeTest "Class3"
-  , typeTest "Class4"
-  , typeTest "Class5"
-  , typeTest "Class6"
-  , typeTest "Append"
-  , typeTest "Map"
-  , typeTest "AbsAp1"
-  , typeTest "AbsAp2"
-  , typeTest "AbsAp3"
-  , typeTest "AbsAp4"
-  , typeTest "InlinePragma"
-  , typeTest "Pattern1"
-  , typeTest "Pattern2"
-  , typeTest "Pattern3"
-  ]
-
-typeTest :: String -> Test
-typeTest name = testCase name $ do
-  let testFile = "tests" </> name <.> "hs"
-  expectedOutput <- readFile (replaceExtension testFile "stdout")
-                        `mplus` return ""
-  output <- either id id `fmap` getTcInfo testFile
-  when (expectedOutput /= output) $ do
-    fail "Diff Error"
+getTcInfo' :: FilePath -> IO String
+getTcInfo' path = fmap (either id id) (getTcInfo path)
 
 getTcInfo :: FilePath -> IO (Either String String)
 getTcInfo file = do
@@ -105,28 +95,6 @@ getTcInfo file = do
             , let tyMsg = P.pretty proof ] ++
             [Doc.empty]
 
--- ppGName :: SrcSpanInfo -> Entity -> Doc
--- ppGName srcSpanInfo Entity{entityName = QualifiedName m ident}
---   | beginLine == endLine =
---     Doc.pretty beginLine <> Doc.text ":" <> Doc.pretty beginColumn <>
---     Doc.text "-" <> Doc.pretty endColumn <+>
---     Doc.text m <> Doc.text "." <> Doc.text ident
---   | otherwise =
---     Doc.pretty beginLine <> Doc.text ":" <> Doc.pretty beginColumn <>
---     Doc.text "-" <>
---     Doc.pretty endLine <> Doc.text ":" <> Doc.pretty endColumn <+>
---     Doc.text m <> Doc.text "." <> Doc.text ident
---   where
---     srcSpan = srcInfoSpan srcSpanInfo
---     beginLine = srcSpanStartLine srcSpan
---     beginColumn = srcSpanStartColumn srcSpan
---     endLine = srcSpanEndLine srcSpan
---     endColumn = srcSpanEndColumn srcSpan
-
--- ppQualName :: QualifiedName -> Doc
--- ppQualName (QualifiedName m ident) =
---   Doc.text m <> Doc.text "." <> Doc.text ident
-
 ppLocation :: Int -> String -> SrcSpanInfo -> Doc
 ppLocation padding file srcSpanInfo =
     indent padding $ vsep $
@@ -144,3 +112,9 @@ ppLocation padding file srcSpanInfo =
     beginColumn = srcSpanStartColumn srcSpan
     endLine = srcSpanEndLine srcSpan
     endColumn = srcSpanEndColumn srcSpan
+
+goldenVsText :: TestName -> FilePath -> IO String -> TestTree
+goldenVsText name path gen =
+    goldenVsStringDiff name (\ref new -> ["diff", ref, new]) path gen'
+  where
+    gen' = BL.fromStrict . T.encodeUtf8 . T.pack <$> gen
