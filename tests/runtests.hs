@@ -37,7 +37,8 @@ main = do
         info <- getTcInfo path
         case info of
           Left err -> do
-            hPutStrLn stderr err
+            putStr err
+            hPutStrLn stderr ""
             exitWith (ExitFailure 1)
           Right msg -> do
             putStr msg
@@ -71,7 +72,7 @@ getTcInfo file = do
     ParseOk thisModule -> do
       let (_env, _errs, scoped) = resolve emptyResolveEnv thisModule
       case typecheck emptyTcEnv scoped of
-        Left err -> error (show err)
+        Left err -> return $ Left $ show err
         Right (typed, _env') -> do
           let allTyped = nub $ foldMap getTyped typed
               getTyped (Coerced nameInfo src proof) = [(nameInfo, src, proof)]

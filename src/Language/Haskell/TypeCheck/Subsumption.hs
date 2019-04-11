@@ -101,8 +101,8 @@ inferRho action = do
 checkSigma :: (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma action sigma = do
   -- debug $ "CheckSigma: " ++ show (P.pretty sigma)
-  (rho, rhoToSigma) <- instantiate sigma
-  -- (_skol_tvs, _preds, rho, prenexToSigma) <- skolemize sigma
+  -- (rho, _rhoToSigma) <- instantiate sigma
+  (_skol_tvs, _preds, rho, _prenexToSigma) <- skolemize sigma
   checkRho action rho
   -- env_tys <- getEnvTypes
   -- esc_tvs <- getFreeTyVars (sigma : env_tys)
