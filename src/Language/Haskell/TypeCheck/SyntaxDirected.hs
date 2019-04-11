@@ -226,7 +226,7 @@ tiExp expr exp_ty =
     Lambda _ pats e | Infer ref <- exp_ty -> do
       patTys <- forM pats $ inferRho . tiPat
       resTy <- inferRho (tiExp e)
-      liftST $ writeSTRef ref (foldr TcApp resTy patTys)
+      liftST $ writeSTRef ref (foldr TcFun resTy patTys)
     Lit _ lit -> tiLit lit exp_ty
     Tuple _ Unboxed args | Check rho <- exp_ty -> do
       argTys <- unifyUnboxedTuple (length args) rho

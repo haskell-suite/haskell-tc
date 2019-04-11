@@ -1,0 +1,11 @@
+Bindings:
+:: ()
+  unit = (\[4mx[0m -> x) ()
+
+Proofs:
+coercion: ()
+  [4munit = (\x -> x) ()[0m
+coercion: ()
+  unit = (\x -> x) [4m()[0m
+coercion: ()
+  unit = (\x -> [4mx[0m) ()
