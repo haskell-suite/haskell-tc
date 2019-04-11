@@ -80,8 +80,8 @@ tiStmts (stmt:stmts) exp_ty =
       (ioA, _aIOb, res_ty) <- unifyFun2 bindIORho
       (_io, a) <- unifyApp ioA
 
-      checkSigma (ann pat) (tiPat pat) a
-      checkSigma (ann expr) (tiExp expr) ioA
+      checkSigma (tiPat pat) a
+      checkSigma (tiExp expr) ioA
       unifyExpected res_ty exp_ty
 
       setProof pin proof bindIOSig
@@ -95,7 +95,7 @@ tiStmts (stmt:stmts) exp_ty =
       (thenIORho, proof) <- instantiate thenIOSig
       (ioA, _aIOb, res_ty) <- unifyFun2 thenIORho
 
-      checkSigma (ann expr) (tiExp expr) ioA
+      checkSigma (tiExp expr) ioA
       unifyExpected res_ty exp_ty
 
       setProof pin proof thenIOSig
@@ -189,14 +189,14 @@ tiExp expr exp_ty =
     InfixApp _ a (QConOp _ qname) b -> do
       fnTy <- inferRho (tiQName qname)
       (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
-      checkSigma (ann a) (tiExp a) a_ty
-      checkSigma (ann b) (tiExp b) b_ty
+      checkSigma (tiExp a) a_ty
+      checkSigma (tiExp b) b_ty
       unifyExpected res_ty exp_ty
     InfixApp _ a (QVarOp _ qname) b -> do
       fnTy <- inferRho (tiQName qname)
       (a_ty, b_ty, res_ty) <- unifyFun2 fnTy
-      checkSigma (ann a) (tiExp a) a_ty
-      checkSigma (ann b) (tiExp b) b_ty
+      checkSigma (tiExp a) a_ty
+      checkSigma (tiExp b) b_ty
       unifyExpected res_ty exp_ty
       -- a `fn` b :: exp_ty
       -- fn :: a -> b -> exp_ty
@@ -205,7 +205,7 @@ tiExp expr exp_ty =
       (arg_ty, res_ty) <- unifyFun fnT
       -- debug $ "ArgTy: " ++ show (P.pretty arg_ty)
       let pin = ann a
-      checkSigma pin (tiExp a) arg_ty
+      checkSigma (tiExp a) arg_ty
 
       unifyExpected res_ty exp_ty
     -- InfixApp _ a op b -> do

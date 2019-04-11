@@ -98,8 +98,8 @@ inferRho action = do
 --   (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
 --   return sigma
 
-checkSigma :: Pin s -> (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
-checkSigma pin action sigma = do
+checkSigma :: (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
+checkSigma action sigma = do
   -- debug $ "CheckSigma: " ++ show (P.pretty sigma)
   (rho, rhoToSigma) <- instantiate sigma
   -- (_skol_tvs, _preds, rho, prenexToSigma) <- skolemize sigma
