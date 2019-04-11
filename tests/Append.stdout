@@ -24,14 +24,6 @@ coercion: (∀ a. Append.List a) @ sk_0_x
       [4mNil[0m       -> b
 coercion: (∀ a. a →  Append.List a →  Append.List a) @ sk_0_x
       [4mCons[0m x xs -> Cons x (append xs b)
-coercion: sk_0_x
-      Cons x xs -> Cons [4mx[0m (append xs b)
-coercion: Append.List sk_0_x
-      Cons x xs -> Cons x [4m(append xs b)[0m
-coercion: Append.List sk_0_x
-      Cons x xs -> Cons x (append [4mxs[0m b)
-coercion: Append.List sk_0_x
-      Cons x xs -> Cons x (append xs [4mb[0m)
 coercion: Append.List sk_0_x
     case [4ma[0m of
 coercion: Append.List sk_0_x

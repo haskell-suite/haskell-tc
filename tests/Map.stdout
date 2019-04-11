@@ -24,16 +24,6 @@ coercion: (∀ a. Main.List a) @ sk_0_a
       [4mNil[0m -> Nil
 coercion: (∀ a. a →  Main.List a →  Main.List a) @ sk_0_a
       [4mCons[0m x xs -> Cons (f x) (map f xs)
-coercion: sk_1_b
-      Cons x xs -> Cons [4m(f x)[0m (map f xs)
-coercion: sk_0_a
-      Cons x xs -> Cons (f [4mx[0m) (map f xs)
-coercion: Main.List sk_1_b
-      Cons x xs -> Cons (f x) [4m(map f xs)[0m
-coercion: sk_0_a →  sk_1_b
-      Cons x xs -> Cons (f x) (map [4mf[0m xs)
-coercion: Main.List sk_0_a
-      Cons x xs -> Cons (f x) (map f [4mxs[0m)
 coercion: Main.List sk_0_a
     case [4mlst[0m of
 coercion: (∀ a. Main.List a) @ sk_1_b

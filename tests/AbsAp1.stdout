@@ -21,8 +21,6 @@ Bindings:
 Proofs:
 coercion: (∀ a. a →  AbsAp1.Maybe a) @ sk_3_a
       [4mJust[0m a -> id a
-coercion: sk_3_a
-      Just a -> id [4ma[0m
 coercion: v2
   id x = [4mx[0m
 coercion: AbsAp1.Maybe sk_3_a

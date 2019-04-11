@@ -9,10 +9,6 @@ Bindings:
   test [4ma[0m = undefined a
 
 Proofs:
-coercion: v3
-  undefined x = undefined [4mx[0m
-coercion: v8
-  test a = undefined [4ma[0m
 coercion: (∀ v3 v4. v3 →  v4) @ v3 v4
   undefined x = [4mundefined[0m x
 coercion: v3

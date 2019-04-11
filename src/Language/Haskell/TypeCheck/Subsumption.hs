@@ -109,7 +109,7 @@ checkSigma pin action sigma = do
   -- let bad_tvs = filter (`elem` esc_tvs) skol_tvs
   -- unless (null bad_tvs) $ error $ "Type not polymorphic enough: " ++ show (P.pretty bad_tvs)
   -- let coercion = tcProofAbs skol_tvs
-  setProof pin rhoToSigma rho
+  -- setProof pin rhoToSigma rho
 
 -- Rule DEEP-SKOL
 -- subsCheck offered_type expected_type

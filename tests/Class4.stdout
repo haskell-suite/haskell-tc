@@ -18,10 +18,6 @@ Bindings:
       fn2 [4mx[0m = show x
 
 Proofs:
-coercion: v10
-  fn1 x y = (fn2 [4mx[0m, y)
-coercion: v7
-      fn2 x = show [4mx[0m
 coercion: (∀ v7. Class4.Show v7 ⇒ v7 →  Class4.String) @ v10
   fn1 x y = ([4mfn2[0m x, y)
 coercion: v10

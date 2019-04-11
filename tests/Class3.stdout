@@ -16,10 +16,6 @@ Proofs:
 coercion: ∀ b a. (Class3.Super a, Class3.Super b) ⇒ Class3.Super (a
                                                                  ,b)
   instance [4m(Super a, Super b) => Super (a,b)[0m
-coercion: sk_21_a
-  super x = super [4mx[0m
-coercion: (v5,v6)
-  byInst a b = super [4m(a,b)[0m
 coercion: (∀ a. Class3.Super a ⇒ a →  Class3.String) @ sk_21_a
   super x = [4msuper[0m x
 coercion: sk_21_a
