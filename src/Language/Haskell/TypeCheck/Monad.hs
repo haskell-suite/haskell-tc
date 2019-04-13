@@ -22,7 +22,7 @@ import           Language.Haskell.Exts.Syntax      (Asst (..), Boxed (..),
                                                     ann)
 
 import           Language.Haskell.Scope            as Scope
--- import qualified Language.Haskell.TypeCheck.Pretty as Doc
+import qualified Language.Haskell.TypeCheck.Pretty as Doc
 import           Language.Haskell.TypeCheck.Proof
 import           Language.Haskell.TypeCheck.Types  hiding (Type (..),TyVar(..))
 import qualified Language.Haskell.TypeCheck.Types  as T
@@ -117,6 +117,8 @@ tiMaybe _ fn (Just a) = fn a
 debug :: String -> TI s ()
 debug str = liftIO (putStrLn str)
 
+debugPP :: Doc.Pretty a => String -> a -> TI s ()
+debugPP tag value = debug $ tag ++ ": " ++ show (Doc.pretty value)
 
 
 --type Infer a = a Origin -> TI (a Typed)

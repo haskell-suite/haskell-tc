@@ -684,9 +684,11 @@ tiDecls decls = withRecursive thisBindGroup $ do
     knots <- getKnots
     outer_meta' <- getMetaTyVars $ map TcMetaVar outer_meta
     -- debug $ "Outer meta: " ++ show (Doc.pretty outer_meta')
-    -- all_meta <- getFreeMetaVariables
-    -- let new_meta = all_meta \\ outer_meta'
-    -- debug $ "New meta: " ++ show (Doc.pretty new_meta)
+    all_meta <- getFreeMetaVariables
+    let new_meta = all_meta \\ outer_meta'
+
+    let tvs = map toTcVar new_meta
+    forM_ (zip new_meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
 
     afterPreds <- mapM lowerPredMetaVars =<< getPredicates
     -- debug $ "tiDecls: " ++ "Outer: " ++ show (Doc.pretty outer_meta')
@@ -696,7 +698,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
 
     forM_ decls $ \(decl, binder) -> do
         ty <- findAssumption binder
-        (gTy, tvs) <- quantify outer_meta' rs ty
+        (gTy, tvs) <- quantify tvs rs ty
         -- debug_gTy <- resolveMetaVars gTy
         -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_gTy) ++ " (knot)"
         -- setProof (ann decl) (flip tcProofAp (map TcRef tvs) . tcProofAbs tvs) gTy
@@ -708,13 +710,6 @@ tiDecls decls = withRecursive thisBindGroup $ do
         forM_ knots $ \(thisBinder, usageLoc) ->
           when (binder == thisBinder) $
             setProof usageLoc (`TcProofAp` map TcRef tvs) gTy
-
-    decl_meta <- getMetaTyVars =<< mapM (findAssumption.snd) decls
-    -- debug $ "Bind group end: " ++ show decl_meta
-    -- debug $ "              : " ++ show outer_meta'
-    let meta = decl_meta \\ outer_meta'
-        tvs = map toTcVar meta
-    forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
 
     when (null outer_meta') $ do
       renameProofs

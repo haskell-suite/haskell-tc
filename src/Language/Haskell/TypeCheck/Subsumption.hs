@@ -10,8 +10,6 @@ import Control.Monad
 import Data.List
 import Data.STRef
 
--- import qualified Language.Haskell.TypeCheck.Pretty as P
-
 -- coercion :: sigma -> rho
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
 instantiate (TcForall [] (TcQual [] ty)) = do
@@ -38,7 +36,6 @@ skolemize sigma = /\a.rho + f::/\a.rho -> sigma
 Skolemize hoists all forall's to the top-level and returns a coercion function
 from the new sigma type to the old sigma type.
 -}
--- FIXME: Return the predicates as well?
 skolemize :: Sigma s -> TI s ([TcVar], [TcPred s], Rho s, TcCoercion s)
 skolemize (TcForall tvs (TcQual preds ty)) = do
   sks <- mapM newSkolemVar tvs
@@ -56,28 +53,15 @@ skolemize (TcFun arg_ty res_ty) = do
 skolemize ty =
   return ([], [], ty, id)
 
--- quantify (MetaRef "a" `TcFun` MetaRef "a") = TcForall [a] (a -> a)
-quantify :: [TcMetaVar s] -> [TcPred s] -> Rho s -> TI s (Sigma s, [TcVar])
-quantify env_tvs predicates rho = do
-    -- debug $ "Quantify: " ++ show env_tvs
-    -- env_tvs' <- getMetaTyVars $ map TcMetaVar env_tvs
-    -- debug $ "        : " ++ show env_tvs'
-    rho_tvs <- getMetaTyVars [rho]
-    -- debug $ "        : " ++ show rho_tvs
-    let meta = rho_tvs \\ env_tvs
-        tvs = map toTcVar meta
-    -- debug $ "        : " ++ show meta
-    -- rho' <- substituteMetaVars (zip meta (map TcRef tvs)) rho
-    -- forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
-    return (TcForall tvs (TcQual predicates rho), tvs)
-  where
-    -- toTcVar n = TcVar ("t"++show n) []
-    toTcVar (TcMetaRef name _) = TcUniqueVar name
+-- quantify [a] [] (a -> b) = forall a. a -> b
+-- quantify [b] [] (a -> b) = forall b. a -> b
+-- quantify [c] [] (a -> b) = a -> b
+quantify :: [TcVar] -> [TcPred s] -> Rho s -> TI s (Sigma s, [TcVar])
+quantify tvs predicates rho = do
+    rho_tvs <- getFreeTyVars [rho]
+    let local = tvs `intersect` rho_tvs
+    return (TcForall local (TcQual predicates rho), local)
 
-
-
--- tcRho :: Term -> Expected s (Rho s) -> TI s ()
--- tcRho = undefined
 
 checkRho :: (ExpectedRho s -> TI s ()) -> Rho s -> TI s ()
 checkRho action ty = action (Check ty)
@@ -87,16 +71,6 @@ inferRho action = do
   ref <- liftST $ newSTRef (error "inferRho: empty result")
   action (Infer ref)
   liftST $ readSTRef ref
-
--- inferSigma :: Term -> TI s (Sigma s)
--- inferSigma term = do
---   exp_ty <- inferRho term
---   env_tys <- getEnvTypes
---   env_tvs <- getMetaTyVars env_tys
---   res_tvs <- getMetaTyVars [exp_ty]
---   let forall_tvs = res_tvs \\ env_tvs
---   (sigma, rhoToSigma) <- quantify forall_tvs exp_ty
---   return sigma
 
 checkSigma :: (ExpectedRho s -> TI s ()) -> Sigma s -> TI s ()
 checkSigma action sigma = do
