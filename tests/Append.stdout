@@ -5,36 +5,36 @@ Bindings:
   data List a = [4mNil[0m | Cons a (List a)
 :: Λa. a →  Append.List a →  Append.List a
   data List a = Nil | [4mCons[0m a (List a)
-:: ∀ sk_0_x. Append.List sk_0_x →  Append.List sk_0_x →  Append.List sk_0_x
+:: ∀ x. Append.List x →  Append.List x →  Append.List x
   [4mappend a b =[0m
   [4m  case a of[0m
   [4m    Nil       -> b[0m
   [4m    Cons x xs -> Cons x (append xs b)[0m
-:: Append.List sk_0_x
+:: Append.List x
   append [4ma[0m b =
-:: Append.List sk_0_x
+:: Append.List x
   append a [4mb[0m =
-:: sk_0_x
+:: x
       Cons [4mx[0m xs -> Cons x (append xs b)
-:: Append.List sk_0_x
+:: Append.List x
       Cons x [4mxs[0m -> Cons x (append xs b)
 
 Proofs:
-coercion: (∀ a. Append.List a) @ sk_0_x
+coercion: (∀ a. Append.List a) @ x
       [4mNil[0m       -> b
-coercion: (∀ a. a →  Append.List a →  Append.List a) @ sk_0_x
+coercion: (∀ a. a →  Append.List a →  Append.List a) @ x
       [4mCons[0m x xs -> Cons x (append xs b)
-coercion: Append.List sk_0_x
+coercion: Append.List x
     case [4ma[0m of
-coercion: Append.List sk_0_x
+coercion: Append.List x
       Nil       -> [4mb[0m
-coercion: (∀ a. a →  Append.List a →  Append.List a) @ sk_0_x
+coercion: (∀ a. a →  Append.List a →  Append.List a) @ x
       Cons x xs -> [4mCons[0m x (append xs b)
-coercion: sk_0_x
+coercion: x
       Cons x xs -> Cons [4mx[0m (append xs b)
-coercion: (∀ x. Append.List x →  Append.List x →  Append.List x) @ sk_0_x
+coercion: (∀ x. Append.List x →  Append.List x →  Append.List x) @ x
       Cons x xs -> Cons x ([4mappend[0m xs b)
-coercion: Append.List sk_0_x
+coercion: Append.List x
       Cons x xs -> Cons x (append [4mxs[0m b)
-coercion: Append.List sk_0_x
+coercion: Append.List x
       Cons x xs -> Cons x (append xs [4mb[0m)

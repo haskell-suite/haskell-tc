@@ -2,28 +2,30 @@
 {-# LANGUAGE RankNTypes                 #-}
 module Language.Haskell.TypeCheck.Monad where
 
+import           Control.Monad.Except
+import           Control.Monad.Fail
 import           Control.Monad.ST
 import           Control.Monad.ST.Unsafe
-import           Control.Monad.Fail
 import           Control.Monad.State
-import           Control.Monad.Except
 import           Data.Map                          (Map)
 import qualified Data.Map                          as Map
+import           Data.Maybe
 import           Data.Set                          (Set)
-import Data.Maybe
 import qualified Data.Set                          as Set
 import           Data.STRef
 import           Language.Haskell.Exts.SrcLoc
-import           Language.Haskell.Exts.Syntax      (Boxed (..), Name(..),
-                                                    QName (..), SpecialCon (..),
+import           Language.Haskell.Exts.Syntax      (Asst (..), Boxed (..),
+                                                    Context (..), Module,
+                                                    Name (..), QName (..),
+                                                    SpecialCon (..),
                                                     TyVarBind (..), Type (..),
-                                                    ann, Context(..), Asst(..), Module)
+                                                    ann)
 
-import           Language.Haskell.Scope as Scope
+import           Language.Haskell.Scope            as Scope
+-- import qualified Language.Haskell.TypeCheck.Pretty as Doc
 import           Language.Haskell.TypeCheck.Proof
-import           Language.Haskell.TypeCheck.Types  hiding (Type (..))
+import           Language.Haskell.TypeCheck.Types  hiding (Type (..),TyVar(..))
 import qualified Language.Haskell.TypeCheck.Types  as T
-import qualified Language.Haskell.TypeCheck.Pretty      as Doc
 
 {-
 TcQual [] (TcIsIn Show a)
@@ -81,11 +83,13 @@ data TIError
 
 data TcState s = TcState
     { -- Values such as 'length', 'Nothing', 'Just', etc
-      tcStateValues     :: Map Entity (TcType s)
-    , tcStateClasses    :: [TcQual s (TcPred s)]
-    , tcStateInstances  :: [TcQual s (TcPred s)]
-    , tcStateUnique     :: Int
-    , tcStateRecursive  :: Set Entity
+      tcStateValues     :: !(Map Entity (TcType s))
+    , tcStateClasses    :: !([TcQual s (TcPred s)])
+    , tcStateInstances  :: !([TcQual s (TcPred s)])
+    , tcStateUnique     :: !(Int)
+    , tcStateSkolems    :: !(Set String)
+    , tcStateProofGroup :: ![STRef s (Maybe (TcProof s))]
+    , tcStateRecursive  :: !(Set Entity)
     -- ^ Set of recursive bindings in the current group.
     , tcStateKnots      :: [(Entity, Pin s)]
     -- ^ Locations where bindings from the current group are used. This is used to set
@@ -123,6 +127,8 @@ emptyTcState = TcState
     , tcStateClasses   = []
     , tcStateInstances = []
     , tcStateUnique    = 0
+    , tcStateSkolems   = Set.empty
+    , tcStateProofGroup = []
     , tcStateRecursive = Set.empty
     , tcStateKnots = []
     , tcStatePredicates = []
@@ -177,6 +183,13 @@ setPredicates :: [TcPred s] -> TI s ()
 setPredicates predicates =
   modify $ \st -> st{tcStatePredicates = predicates}
 
+dropSkolem :: TcVar -> TI s ()
+dropSkolem (TcVar name _) =
+  modify $ \st -> st{tcStateSkolems = Set.delete name (tcStateSkolems st) }
+dropSkolem (TcSkolemVar name) =
+  modify $ \st -> st{tcStateSkolems = Set.delete name (tcStateSkolems st) }
+dropSkolem TcUniqueVar{} = return ()
+
 newUnique :: TI s Int
 newUnique = do
     u <- gets tcStateUnique
@@ -203,12 +216,18 @@ findAssumption ident = do
 
 setProof :: Pin s -> TcCoercion s -> TcType s -> TI s ()
 setProof (Pin _ ref) coercion src = do
-  -- debug $ "SetProof: " ++ show (Doc.pretty src)
-  liftST $ do
-    mbProof <- readSTRef ref
-    case mbProof of
-      Nothing -> writeSTRef ref (Just $ coercion $ TcProofSrc src)
-      Just{} -> error "Proof already set"
+  mbProof <- liftST $ readSTRef ref
+  case mbProof of
+    Nothing -> do
+      -- debug $ "SetProof: " ++ show (Doc.pretty $ coercion $ TcProofSrc src)
+      liftST $ writeSTRef ref (Just $ coercion $ TcProofSrc src)
+      modify $ \st -> st{tcStateProofGroup = ref : tcStateProofGroup st}
+    Just{} -> error "Proof already set"
+
+getProof :: Pin s -> TI s (TcProof s)
+getProof (Pin _ ref) = liftST $ do
+  Just proof <- readSTRef ref
+  return proof
 
 pinAST :: Module Origin -> TI s (Module (Pin s))
 pinAST = liftST . traverse newPin
@@ -226,7 +245,7 @@ unpinAST = traverse unpin
         Nothing -> return $ Scoped nameinfo srcspan
         Just proof -> do
           -- debug (show nameinfo)
-          zonked <- simplifyProof <$> zonkProof proof
+          zonked <- simplifyProof.simplifyProof <$> zonkProof proof
           pure $ Coerced nameinfo srcspan zonked
           -- if isTrivial zonked && not (isBinding nameinfo)
           --   then pure $ Scoped nameinfo srcspan
@@ -234,11 +253,12 @@ unpinAST = traverse unpin
 
 isBinding :: Scope.NameInfo -> Bool
 isBinding Scope.Binding{} = True
-isBinding _ = False
+isBinding _               = False
 
 expectResolvedPin :: Pin s -> TI s Entity
 expectResolvedPin (Pin (Origin (Resolved gname) _) _) = pure gname
-expectResolvedPin (Pin (Origin (Binding gname) _) _) = pure gname
+expectResolvedPin (Pin (Origin (Binding gname) _) _)  = pure gname
+expectResolvedPin _ = throwError $ GeneralError "expected resolved"
 
 qnameToEntity :: QName (Pin s) -> TI s Entity
 qnameToEntity qname =
@@ -277,20 +297,26 @@ lookupInstances className = do
          | TcQual constraints (TcIsIn thisClassName ty) <- insts
          , thisClassName == className ]
 
+zonkTcVar :: TcVar -> T.TyVar
+zonkTcVar (TcVar name _loc) = T.TyVar name
+zonkTcVar (TcSkolemVar name) = T.TyVar name
+zonkTcVar (TcUniqueVar n) = T.TyVar (show n)
+
 zonkType :: TcType s -> TI s T.Type
 zonkType ty = do
   -- debug $ "Zonk: " ++ show (Doc.pretty ty)
   case ty of
     TcForall tyvars (TcQual predicates tty) ->
-      T.TyForall tyvars <$> ((:=>) <$> mapM zonkPredicate predicates <*> zonkType tty)
+      T.TyForall (map zonkTcVar tyvars) <$>
+        ((:=>) <$> mapM zonkPredicate predicates <*> zonkType tty)
     TcFun a b -> T.TyFun <$> zonkType a <*> zonkType b
     TcApp a b -> T.TyApp <$> zonkType a <*> zonkType b
-    TcRef var -> pure $ T.TyRef var
+    TcRef var -> pure $ T.TyRef $ zonkTcVar var
     TcCon con -> pure $ T.TyCon con
     TcMetaVar (TcMetaRef name meta) -> do
         mbTy <- liftST (readSTRef meta)
         case mbTy of
-            Nothing -> error $ "Zonking unset meta variable: " ++ name
+            Nothing  -> error $ "Zonking unset meta variable: " ++ show name
             Just sub -> zonkType sub
     TcUnboxedTuple tys -> T.TyUnboxedTuple <$> mapM zonkType tys
     TcTuple tys -> T.TyTuple <$> mapM zonkType tys
@@ -303,7 +329,7 @@ zonkPredicate (TcIsIn className ty) = IsIn className <$> zonkType ty
 zonkProof :: TcProof s -> TI s Proof
 zonkProof proof =
   case proof of
-    TcProofAbs tvs p  -> ProofAbs tvs <$> zonkProof p
+    TcProofAbs tvs p  -> ProofAbs (map zonkTcVar tvs) <$> zonkProof p
     TcProofAp p tys   -> ProofAp <$> zonkProof p <*> mapM zonkType tys
     TcProofLam n ty p -> ProofLam n <$> zonkType ty <*> zonkProof p
     TcProofSrc ty     -> ProofSrc <$> zonkType ty
@@ -316,17 +342,18 @@ tcVarFromName name =
   where
     src = case ann name of
             Pin (Origin (Resolved entity) _) _ -> entityLocation entity
-            Pin (Origin (Binding entity) _) _ -> entityLocation entity
+            Pin (Origin (Binding entity) _) _  -> entityLocation entity
+            _ -> []
     ident =
       case name of
         Symbol _ symbol -> symbol
-        Ident _ ident -> ident
+        Ident _ ident   -> ident
 
 newTcVar :: TI s (TcMetaVar s)
 newTcVar = do
     u <- newUnique
     ref <- liftST $ newSTRef Nothing
-    return $ TcMetaRef ("v"++show u) ref
+    return $ TcMetaRef u ref
 
 typeToTcType :: Type (Pin s) -> TI s (TcType s)
 typeToTcType ty =
@@ -335,7 +362,7 @@ typeToTcType ty =
         TcForall
           [ case bind of
               KindedVar _ name _kind -> tcVarFromName name
-              UnkindedVar _ name -> tcVarFromName name | bind <- fromMaybe [] mbTybinds ]
+              UnkindedVar _ name     -> tcVarFromName name | bind <- fromMaybe [] mbTybinds ]
           <$> (TcQual <$> tiMaybe [] contextToPredicates mbContext <*> typeToTcType ty')
       TyFun _ a b -> TcFun <$> typeToTcType a <*> typeToTcType b
       TyVar _ name -> pure $ TcRef (tcVarFromName name)
@@ -354,7 +381,7 @@ typeToTcType ty =
 contextToPredicates :: Context (Pin s) -> TI s [TcPred s]
 contextToPredicates ctx =
   case ctx of
-    CxEmpty{} -> pure []
+    CxEmpty{}             -> pure []
     CxSingle _origin asst -> pure <$> assertionToPredicate asst
     CxTuple _origin assts -> mapM assertionToPredicate assts
 
@@ -364,7 +391,7 @@ assertionToPredicate asst =
     ParenA _ sub -> assertionToPredicate sub
     ClassA _ qname [ty] ->
       TcIsIn <$> qnameToEntity qname <*> typeToTcType ty
-    ClassA _ qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
+    ClassA _ _qname [] -> error "assertionToPredicate: MultiParamTypeClasses not supported"
     _ -> error "assertionToPredicate: unsupported assertion"
 
 --tcTypeToScheme :: TcType -> TcType

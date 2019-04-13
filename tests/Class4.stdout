@@ -3,28 +3,28 @@ Bindings:
   data [4mString[0m
 :: ∀ a. Class4.Show a ⇒ a →  Class4.String
     [4mshow[0m :: a -> String
-:: ∀ v10 v9. Class4.Show v10 ⇒ v10 →  v9 →  (Class4.String
-                                            ,v9)
+:: ∀ a b. Class4.Show a ⇒ a →  b →  (Class4.String
+                                    ,b)
   [4mfn1 x y = (fn2 x, y)[0m
   [4m  where[0m
   [4m    fn2 x = show x[0m
-:: v10
+:: a
   fn1 [4mx[0m y = (fn2 x, y)
-:: v9
+:: b
   fn1 x [4my[0m = (fn2 x, y)
-:: ∀ v7. Class4.Show v7 ⇒ v7 →  Class4.String
+:: ∀ c. Class4.Show c ⇒ c →  Class4.String
       [4mfn2 x = show x[0m
-:: v7
+:: c
       fn2 [4mx[0m = show x
 
 Proofs:
-coercion: (∀ v7. Class4.Show v7 ⇒ v7 →  Class4.String) @ v10
+coercion: (∀ c. Class4.Show c ⇒ c →  Class4.String) @ a
   fn1 x y = ([4mfn2[0m x, y)
-coercion: v10
+coercion: a
   fn1 x y = (fn2 [4mx[0m, y)
-coercion: v9
+coercion: b
   fn1 x y = (fn2 x, [4my[0m)
-coercion: (∀ a. Class4.Show a ⇒ a →  Class4.String) @ v7
+coercion: (∀ a. Class4.Show a ⇒ a →  Class4.String) @ c
       fn2 x = [4mshow[0m x
-coercion: v7
+coercion: c
       fn2 x = show [4mx[0m

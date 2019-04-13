@@ -5,27 +5,27 @@ Bindings:
   data Maybe a = [4mJust[0m a | Nothing
 :: Λa. AbsAp1.Maybe a
   data Maybe a = Just a | [4mNothing[0m
-:: ∀ v2. v2 →  v2
+:: ∀ a. a →  a
   [4mid x = x[0m
-:: v2
+:: a
   id [4mx[0m = x
-:: ∀ sk_3_a. AbsAp1.Maybe sk_3_a →  sk_3_a
+:: ∀ a. AbsAp1.Maybe a →  a
   [4mfromJust mb =[0m
   [4m  case mb of[0m
   [4m    Just a -> id a[0m
-:: AbsAp1.Maybe sk_3_a
+:: AbsAp1.Maybe a
   fromJust [4mmb[0m =
-:: sk_3_a
+:: a
       Just [4ma[0m -> id a
 
 Proofs:
-coercion: (∀ a. a →  AbsAp1.Maybe a) @ sk_3_a
+coercion: (∀ a. a →  AbsAp1.Maybe a) @ a
       [4mJust[0m a -> id a
-coercion: v2
+coercion: a
   id x = [4mx[0m
-coercion: AbsAp1.Maybe sk_3_a
+coercion: AbsAp1.Maybe a
     case [4mmb[0m of
-coercion: (∀ v2. v2 →  v2) @ sk_3_a
+coercion: (∀ a. a →  a) @ a
       Just a -> [4mid[0m a
-coercion: sk_3_a
+coercion: a
       Just a -> id [4ma[0m

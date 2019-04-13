@@ -5,22 +5,22 @@ Bindings:
   data Maybe a = [4mNothing[0m | Just a
 :: Λa. a →  Pattern2.Maybe a
   data Maybe a = Nothing | [4mJust[0m a
-:: ∀ v7. v7 →  Pattern2.Maybe v7 →  v7
+:: ∀ a. a →  Pattern2.Maybe a →  a
   [4mfromMaybe def Nothing  = def[0m
   [4mfromMaybe def (Just a) = a[0m
-:: v7
+:: a
   fromMaybe [4mdef[0m Nothing  = def
-:: v7
+:: a
   fromMaybe [4mdef[0m (Just a) = a
-:: v7
+:: a
   fromMaybe def (Just [4ma[0m) = a
 
 Proofs:
-coercion: (∀ a. Pattern2.Maybe a) @ v7
+coercion: (∀ a. Pattern2.Maybe a) @ a
   fromMaybe def [4mNothing[0m  = def
-coercion: (∀ a. a →  Pattern2.Maybe a) @ v7
+coercion: (∀ a. a →  Pattern2.Maybe a) @ a
   fromMaybe def ([4mJust[0m a) = a
-coercion: v7
+coercion: a
   fromMaybe def Nothing  = [4mdef[0m
-coercion: v7
+coercion: a
   fromMaybe def (Just a) = [4ma[0m

@@ -1,39 +1,39 @@
 Bindings:
-:: ∀ v3 v4. v3 →  v4
+:: ∀ a b. a →  b
   [4mundefined x = undefined x[0m
-:: v3
+:: a
   undefined [4mx[0m = undefined x
-:: ∀ v25. v25 →  ()
+:: ∀ a. a →  ()
   [4mfn1 x = fn2 x undefined[0m
-:: v25
+:: a
   fn1 [4mx[0m = fn2 x undefined
-:: ∀ v25 v13 v16. v25 →  (v13 →  v16) →  ()
+:: ∀ a b c. a →  (b →  c) →  ()
   [4mfn2 y i = ()[0m
   [4m  where[0m
   [4m    fn3 a z = fn1 z[0m
-:: v25
+:: a
   fn2 [4my[0m i = ()
-:: v13 →  v16
+:: b →  c
   fn2 y [4mi[0m = ()
-:: ∀ v22. v22 →  v25 →  ()
+:: ∀ d. d →  a →  ()
       [4mfn3 a z = fn1 z[0m
-:: v22
+:: d
       fn3 [4ma[0m z = fn1 z
-:: v25
+:: a
       fn3 a [4mz[0m = fn1 z
 
 Proofs:
-coercion: (∀ v3 v4. v3 →  v4) @ v3 v4
+coercion: (∀ a b. a →  b) @ a b
   undefined x = [4mundefined[0m x
-coercion: v3
+coercion: a
   undefined x = undefined [4mx[0m
-coercion: (∀ v25 v13 v16. v25 →  (v13 →  v16) →  ()) @ v25 v13 v16
+coercion: (∀ a b c. a →  (b →  c) →  ()) @ a b c
   fn1 x = [4mfn2[0m x undefined
-coercion: v25
+coercion: a
   fn1 x = fn2 [4mx[0m undefined
-coercion: (∀ v3 v4. v3 →  v4) @ v13 v16
+coercion: (∀ a b. a →  b) @ b c
   fn1 x = fn2 x [4mundefined[0m
-coercion: (∀ v25. v25 →  ()) @ v25
+coercion: (∀ a. a →  ()) @ a
       fn3 a z = [4mfn1[0m z
-coercion: v25
+coercion: a
       fn3 a z = fn1 [4mz[0m

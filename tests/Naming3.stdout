@@ -1,0 +1,11 @@
+Bindings:
+:: Λb. λ1::b. Λa. ((∀ b a. b →  a →  a) @ b a) 1
+  [4mfn b a = a[0m
+:: b
+  fn [4mb[0m a = a
+:: a
+  fn b [4ma[0m = a
+
+Proofs:
+coercion: a
+  fn b a = [4ma[0m

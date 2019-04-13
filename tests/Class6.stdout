@@ -7,15 +7,15 @@ Bindings:
   data Maybe a = [4mNothing[0m | Just a
 :: Λa. a →  Class6.Maybe a
   data Maybe a = Nothing | [4mJust[0m a
-:: Class6.Maybe sk_0_a
+:: Class6.Maybe a
     plus = \[4ma[0m b -> Nothing
-:: Class6.Maybe sk_0_a
+:: Class6.Maybe a
     plus = \a [4mb[0m -> Nothing
 
 Proofs:
 coercion: ∀ a. Class6.Plus (Class6.Maybe a)
   instance [4mPlus (Maybe a)[0m where
-coercion: ∀ sk_0_a. Class6.Maybe sk_0_a →  Class6.Maybe sk_0_a →  Class6.Maybe sk_0_a
+coercion: ∀ a. Class6.Maybe a →  Class6.Maybe a →  Class6.Maybe a
     [4mplus = \a b -> Nothing[0m
-coercion: (∀ a. Class6.Maybe a) @ sk_0_a
+coercion: (∀ a. Class6.Maybe a) @ a
     plus = \a b -> [4mNothing[0m

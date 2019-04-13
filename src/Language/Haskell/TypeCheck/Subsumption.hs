@@ -5,20 +5,19 @@ import Language.Haskell.TypeCheck.Monad
 import Language.Haskell.TypeCheck.Misc
 import Language.Haskell.TypeCheck.Unify
 import Language.Haskell.TypeCheck.Proof
-import Language.Haskell.TypeCheck.Debug
 
 import Control.Monad
 import Data.List
 import Data.STRef
 
-import qualified Language.Haskell.TypeCheck.Pretty as P
+-- import qualified Language.Haskell.TypeCheck.Pretty as P
 
 -- coercion :: sigma -> rho
 instantiate :: Sigma s -> TI s (Rho s, TcCoercion s)
 instantiate (TcForall [] (TcQual [] ty)) = do
   -- debug $ "Instatiate: Silly forall"
   instantiate ty
-instantiate orig@(TcForall tvs (TcQual preds ty)) = do
+instantiate (TcForall tvs (TcQual preds ty)) = do
   tvs' <- map TcMetaVar <$> replicateM (length tvs) newTcVar
   ty' <- substituteTyVars (zip tvs tvs') ty
   preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs tvs'))
@@ -31,7 +30,7 @@ instantiate tau = return (tau, id)
 instantiateMethod :: Sigma s -> TcVar -> Sigma s
 instantiateMethod (TcForall tvs (TcQual pred ty)) tv =
   TcForall (delete tv tvs) (TcQual [ elt | elt@(TcIsIn _cls (TcRef pTV)) <- pred, pTV /= tv ] ty)
-instantiateMethod sigma tv = sigma
+instantiateMethod sigma _tv = sigma
 
 {-
 skolemize sigma = /\a.rho + f::/\a.rho -> sigma
@@ -43,6 +42,7 @@ from the new sigma type to the old sigma type.
 skolemize :: Sigma s -> TI s ([TcVar], [TcPred s], Rho s, TcCoercion s)
 skolemize (TcForall tvs (TcQual preds ty)) = do
   sks <- mapM newSkolemVar tvs
+  -- debug $ "New Skolem: " ++ show (P.pretty sks)
   let skTys = map TcRef sks
   (sks2, preds2, ty', f) <- skolemize =<< substituteTyVars (zip tvs skTys) ty
   preds' <- forM preds $ mapTcPredM (substituteTyVars (zip tvs skTys))
@@ -72,7 +72,7 @@ quantify env_tvs predicates rho = do
     return (TcForall tvs (TcQual predicates rho), tvs)
   where
     -- toTcVar n = TcVar ("t"++show n) []
-    toTcVar (TcMetaRef name _) = TcVar name []
+    toTcVar (TcMetaRef name _) = TcUniqueVar name
 
 
 

@@ -5,15 +5,15 @@ Bindings:
     [4mshow[0m :: a -> String
 :: ∀ m a. Class1.Monad m ⇒ a →  m a
     [4mreturn[0m :: a -> m a
-:: ∀ v3 v5. Class1.Monad v3 ⇒ v5 →  v3 [v5]
+:: ∀ b a. Class1.Monad b ⇒ a →  b [a]
   [4mlist x = return [x][0m
-:: v5
+:: a
   list [4mx[0m = return [x]
 
 Proofs:
-coercion: (∀ a. [a]) @ v5
+coercion: (∀ a. [a]) @ a
   list x = return [4m[x][0m
-coercion: (∀ m a. Class1.Monad m ⇒ a →  m a) @ v3 [v5]
+coercion: (∀ m a. Class1.Monad m ⇒ a →  m a) @ b [a]
   list x = [4mreturn[0m [x]
-coercion: v5
+coercion: a
   list x = return [[4mx[0m]

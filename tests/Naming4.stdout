@@ -1,0 +1,36 @@
+Bindings:
+:: ∀ a b. a →  b →  b
+  [4mconst _ b = b[0m
+:: b
+  const _ [4mb[0m = b
+:: ∀ a. a →  a
+  [4mouter a = a[0m
+  [4m  where[0m
+  [4m    inner b = const (const a ()) b[0m
+  [4m    id x = x[0m
+:: a
+  outer [4ma[0m = a
+:: ∀ b. b →  b
+      [4minner b = const (const a ()) b[0m
+:: b
+      inner [4mb[0m = const (const a ()) b
+:: ∀ c. c →  c
+      [4mid x = x[0m
+:: c
+      id [4mx[0m = x
+
+Proofs:
+coercion: b
+  const _ b = [4mb[0m
+coercion: a
+  outer a = [4ma[0m
+coercion: (∀ a b. a →  b →  b) @ () b
+      inner b = [4mconst[0m (const a ()) b
+coercion: (∀ a b. a →  b →  b) @ a ()
+      inner b = const ([4mconst[0m a ()) b
+coercion: a
+      inner b = const (const [4ma[0m ()) b
+coercion: b
+      inner b = const (const a ()) [4mb[0m
+coercion: c
+      id x = [4mx[0m

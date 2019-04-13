@@ -1,10 +1,10 @@
 module Language.Haskell.TypeCheck.Debug where
 
-import Language.Haskell.TypeCheck.Types
-import Language.Haskell.TypeCheck.Monad
 import           Language.Haskell.Scope
+import           Language.Haskell.TypeCheck.Monad
+import           Language.Haskell.TypeCheck.Types
 
-import Data.List
+import           Data.List
 import           Data.STRef
 
 type Verbose = Bool
@@ -36,11 +36,12 @@ resolveMetaVars ty =
     TcMetaVar (TcMetaRef name meta) -> do
         mbTy <- liftST (readSTRef meta)
         case mbTy of
-            Nothing -> pure $ TcMetaVar (TcMetaRef name meta)
+            Nothing  -> pure $ TcMetaVar (TcMetaRef name meta)
             Just sub -> resolveMetaVars sub
     TcUnboxedTuple tys -> TcUnboxedTuple <$> mapM resolveMetaVars tys
     TcTuple tys -> TcTuple <$> mapM resolveMetaVars tys
     TcList elt -> TcList <$> resolveMetaVars elt
+    TcStar -> pure TcStar
 
 resolvePredicate :: TcPred s -> TI s (TcPred s)
 resolvePredicate (TcIsIn className ty) = TcIsIn className <$> resolveMetaVars ty

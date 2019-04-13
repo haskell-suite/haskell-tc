@@ -1,27 +1,27 @@
 Bindings:
-:: ∀ v12. v12 →  ()
+:: ∀ a. a →  ()
   [4mfn1 x = fn2 x[0m
-:: v12
+:: a
   fn1 [4mx[0m = fn2 x
-:: ∀ v12. v12 →  ()
+:: ∀ a. a →  ()
   [4mfn2 y = ()[0m
   [4m  where[0m
   [4m    fn3 a z = fn1 z[0m
-:: v12
+:: a
   fn2 [4my[0m = ()
-:: ∀ v9. v9 →  v12 →  ()
+:: ∀ b. b →  a →  ()
       [4mfn3 a z = fn1 z[0m
-:: v9
+:: b
       fn3 [4ma[0m z = fn1 z
-:: v12
+:: a
       fn3 a [4mz[0m = fn1 z
 
 Proofs:
-coercion: (∀ v12. v12 →  ()) @ v12
+coercion: (∀ a. a →  ()) @ a
   fn1 x = [4mfn2[0m x
-coercion: v12
+coercion: a
   fn1 x = fn2 [4mx[0m
-coercion: (∀ v12. v12 →  ()) @ v12
+coercion: (∀ a. a →  ()) @ a
       fn3 a z = [4mfn1[0m z
-coercion: v12
+coercion: a
       fn3 a z = fn1 [4mz[0m

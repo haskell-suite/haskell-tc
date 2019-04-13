@@ -1,19 +1,19 @@
 Bindings:
-:: ∀ v3 v4. v3 →  v4
+:: ∀ a b. a →  b
   [4mundefined x = undefined x[0m
-:: v3
+:: a
   undefined [4mx[0m = undefined x
-:: ∀ v8 v7. v8 →  v7
+:: ∀ a b. a →  b
   [4mtest a = undefined a[0m
-:: v8
+:: a
   test [4ma[0m = undefined a
 
 Proofs:
-coercion: (∀ v3 v4. v3 →  v4) @ v3 v4
+coercion: (∀ a b. a →  b) @ a b
   undefined x = [4mundefined[0m x
-coercion: v3
+coercion: a
   undefined x = undefined [4mx[0m
-coercion: (∀ v3 v4. v3 →  v4) @ v8 v7
+coercion: (∀ a b. a →  b) @ a b
   test a = [4mundefined[0m a
-coercion: v8
+coercion: a
   test a = undefined [4ma[0m

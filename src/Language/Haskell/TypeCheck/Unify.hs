@@ -36,7 +36,7 @@ unify (TcUnboxedTuple as) (TcUnboxedTuple bs)
 unify (TcMetaVar ref) a = unifyMetaVar ref a
 unify a (TcMetaVar ref) = unifyMetaVar ref a
 unify (TcRef a) (TcRef b) | a == b = return ()
-unify (TcRef a) b       = throwError $ UnificationError $ "Unexpected ref: " ++ show (P.pretty a)
+unify (TcRef a) _       = throwError $ UnificationError $ "Unexpected ref: " ++ show (P.pretty a)
 unify a b               = throwError $ UnificationError $ show (P.pretty a) ++ " <=> " ++ show (P.pretty b)
 
 unifyMetaVar :: TcMetaVar s -> TcType s -> TI s ()
@@ -48,7 +48,7 @@ unifyMetaVar a@(TcMetaRef _ident ref) rightTy = do
         Nothing -> unifyUnboundVar a rightTy
 
 unifyUnboundVar :: TcMetaVar s -> TcType s -> TI s ()
-unifyUnboundVar tv bTy@(TcMetaVar b@(TcMetaRef _ refB)) = do
+unifyUnboundVar tv (TcMetaVar b@(TcMetaRef _ refB)) = do
     mbSubst <- liftST $ readSTRef refB
     case mbSubst of
         Just ty -> unify (TcMetaVar tv) ty
@@ -203,7 +203,7 @@ entail ps p = do
         Just constraints -> and <$> mapM (entail ps) constraints
 
 inHnf :: TcPred s -> Bool
-inHnf (TcIsIn c t) = hnf t
+inHnf (TcIsIn _c t) = hnf t
   where
     hnf TcRef{} = True
     hnf (TcApp t _) = hnf t

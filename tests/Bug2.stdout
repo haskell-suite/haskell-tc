@@ -1,11 +1,11 @@
 Bindings:
-:: [v2]
+:: [a]
   list = (\[4mx[0m -> x) []
 
 Proofs:
-coercion: ∀ v2. [v2]
+coercion: ∀ a. [a]
   [4mlist = (\x -> x) [][0m
-coercion: (∀ a. [a]) @ v2
+coercion: (∀ a. [a]) @ a
   list = (\x -> x) [4m[][0m
-coercion: [v2]
+coercion: [a]
   list = (\x -> [4mx[0m) []

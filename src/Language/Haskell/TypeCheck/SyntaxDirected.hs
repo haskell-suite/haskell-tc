@@ -16,7 +16,6 @@ import qualified Language.Haskell.Exts.Pretty as HS
 import           Language.Haskell.Scope                 (Entity (..),
                                                          NameInfo (..),
                                                          Origin (..))
-import           Language.Haskell.TypeCheck.Debug
 import           Language.Haskell.TypeCheck.Misc
 import           Language.Haskell.TypeCheck.Monad
 import           Language.Haskell.TypeCheck.Proof
@@ -25,7 +24,7 @@ import           Language.Haskell.TypeCheck.Types       hiding (Type (..),
                                                          Typed (..))
 import           Language.Haskell.TypeCheck.Unify
 
-import qualified Language.Haskell.TypeCheck.Pretty      as Doc
+-- import qualified Language.Haskell.TypeCheck.Pretty      as Doc
 
 -- tiGuardedAlts :: GuardedAlts Origin -> TI TcType
 -- tiGuardedAlts galts =
@@ -63,7 +62,7 @@ tiLit lit exp_ty = do
 --         QConOp src con -> tiExp (Con src con)
 
 tiStmts :: [Stmt (Pin s)] -> Expected s (Rho s) -> TI s ()
-tiStmts [] exp_ty = error "tiStmts: empty list"
+tiStmts [] _exp_ty = error "tiStmts: empty list"
 tiStmts [stmt] exp_ty =
   case stmt of
     Generator{} -> unhandledSyntax "tiStmts" stmt
@@ -154,6 +153,8 @@ tiQName (Special _ UnitCon{}) exp_ty = unifyExpected (TcTuple []) exp_ty
 tiQName (Special pin Cons{}) exp_ty = do
   coercion <- instSigma consSigma exp_ty
   setProof pin coercion consSigma
+tiQName Special{} _exp_ty = error "unhandled special"
+tiQName Qual{} _exp_ty = error "unhandled qual"
 tiQName (UnQual _src name) exp_ty = do
   let pin = ann name
   gname <- expectResolvedPin pin
@@ -204,7 +205,6 @@ tiExp expr exp_ty =
       fnT <- inferRho (tiExp fn)
       (arg_ty, res_ty) <- unifyFun fnT
       -- debug $ "ArgTy: " ++ show (P.pretty arg_ty)
-      let pin = ann a
       checkSigma (tiExp a) arg_ty
 
       unifyExpected res_ty exp_ty
@@ -572,7 +572,7 @@ tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
   -- debug $ "instPreds = " ++ show (Doc.pretty instPreds)
   setPredicates instPreds
 
-  (clsPred, TcRef clsTv) <- lookupClass instClassName
+  (_clsPred, TcRef clsTv) <- lookupClass instClassName
 
   forM_ (fromMaybe [] mbInstDecls) $ \instDecl ->
     case instDecl of
@@ -592,14 +592,14 @@ tiInstDecl (InstDecl _ _overlap instRule mbInstDecls) = do
 
         -- debug $ "sigma'' = " ++ show (Doc.pretty sigma'')
 
-        (tvs, preds, genRho, _prenexToSigma) <- skolemize sigma''
+        (_tvs, preds, genRho, _prenexToSigma) <- skolemize sigma''
 
         addPredicates preds
 
         -- debug $ "preds = " ++ show (Doc.pretty preds)
         -- debug $ "genRho = " ++ show (Doc.pretty genRho)
 
-        predsAfter <- mapM lowerPredMetaVars =<< getPredicates
+        -- predsAfter <- mapM lowerPredMetaVars =<< getPredicates
 
         -- debug $ "predsAfter = " ++ show (Doc.pretty predsAfter)
 
@@ -635,9 +635,10 @@ If any predicates are left using meta variables:
 -}
 tiExpl :: (Decl (Pin s), Entity) -> TI s ()
 tiExpl (decl, binder) = do
+  -- debug $ "tiExpl: " ++ show (Doc.pretty binder)
   setPredicates []
   sigma <- findAssumption binder
-  -- Hm, we need to do something with the 'tvs' but I can't see what.
+
   (tvs, preds, rho, prenexToSigma) <- skolemize sigma
   -- debug $ "tiExpl: " ++ show (Doc.pretty binder) ++ " :: " ++ show (Doc.pretty sigma)
   -- debug $ "tiExpl: " ++ show (Doc.pretty binder) ++ " :: " ++ show (Doc.pretty rho)
@@ -650,6 +651,8 @@ tiExpl (decl, binder) = do
   -- debug $ "tiExpl: " ++ "Kept: " ++ show (Doc.pretty rs)
   unless (null rs) $ throwError ContextTooWeak
   setProof (ann decl) (prenexToSigma) (TcForall tvs (TcQual preds rho))
+  mapM_ dropSkolem tvs
+  -- setProof (ann decl) (prenexToSigma . tcProofAbs tvs) rho
 
 {-
 Predicates:
@@ -675,11 +678,15 @@ tiDecls decls = withRecursive thisBindGroup $ do
         -- debug_ty <- resolveMetaVars ty
         -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_ty) ++ " (end)"
 
-    _preds <- getPredicates
+    -- _preds <- getPredicates
     -- forM_ _preds $ debug . show . Doc.pretty
 
     knots <- getKnots
     outer_meta' <- getMetaTyVars $ map TcMetaVar outer_meta
+    -- debug $ "Outer meta: " ++ show (Doc.pretty outer_meta')
+    -- all_meta <- getFreeMetaVariables
+    -- let new_meta = all_meta \\ outer_meta'
+    -- debug $ "New meta: " ++ show (Doc.pretty new_meta)
 
     afterPreds <- mapM lowerPredMetaVars =<< getPredicates
     -- debug $ "tiDecls: " ++ "Outer: " ++ show (Doc.pretty outer_meta')
@@ -694,6 +701,7 @@ tiDecls decls = withRecursive thisBindGroup $ do
         -- debug $ dshow False binder ++ " :: " ++ show (Doc.pretty debug_gTy) ++ " (knot)"
         -- setProof (ann decl) (flip tcProofAp (map TcRef tvs) . tcProofAbs tvs) gTy
         setProof (ann decl) id gTy
+        -- proof <- getProof (ann decl)
         -- debug $ show $ Doc.pretty gTy
         setAssumption binder gTy
 
@@ -707,9 +715,12 @@ tiDecls decls = withRecursive thisBindGroup $ do
     let meta = decl_meta \\ outer_meta'
         tvs = map toTcVar meta
     forM_ (zip meta tvs) $ \(var, ty) -> writeMetaVar var (TcRef ty)
+
+    when (null outer_meta') $ do
+      renameProofs
   where
     thisBindGroup = map snd decls
-    toTcVar (TcMetaRef name _) = TcVar name []
+    toTcVar (TcMetaRef name _) = TcUniqueVar name
 
 
 
@@ -755,6 +766,7 @@ declFreeVariables decl =
       FunBind _ matches -> concatMap freeMatch matches
       PatBind _ _pat rhs binds -> freeRhs rhs ++ freeBinds binds
       ClassDecl _ _ctx _head _funDep _mbDecls -> []
+      TypeSig{} -> []
       _ -> unhandledSyntax "declFreeVariables" decl
   where
     -- freeClsDecl clsDecl =
@@ -826,7 +838,7 @@ declBinders decl =
     case decl of
         DataDecl{} -> []
         ForImp{}   -> []
-        FunBind (Pin (Origin (Binding gname) _src) _) matches -> [gname]
+        FunBind (Pin (Origin (Binding gname) _src) _) _matches -> [gname]
         PatBind _ pat _rhs _binds ->
             patBinders pat
         TypeDecl{} -> []

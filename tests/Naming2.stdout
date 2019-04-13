@@ -1,0 +1,32 @@
+Bindings:
+:: ∀ a. a →  a
+  [4mfn var_a = sub var_a[0m
+  [4m  where[0m
+  [4m    sub :: a -> a[0m
+  [4m    sub another_a = const (const var_a ()) another_a[0m
+:: a
+  fn [4mvar_a[0m = sub var_a
+:: ∀ a2. a2 →  a2
+      [4msub another_a = const (const var_a ()) another_a[0m
+:: a2
+      sub [4manother_a[0m = const (const var_a ()) another_a
+:: ∀ a b. a →  b →  b
+  [4mconst _ b = b[0m
+:: b
+  const _ [4mb[0m = b
+
+Proofs:
+coercion: (∀ a. a →  a) @ a
+  fn var_a = [4msub[0m var_a
+coercion: a
+  fn var_a = sub [4mvar_a[0m
+coercion: (∀ a b. a →  b →  b) @ () a2
+      sub another_a = [4mconst[0m (const var_a ()) another_a
+coercion: (∀ a b. a →  b →  b) @ a ()
+      sub another_a = const ([4mconst[0m var_a ()) another_a
+coercion: a
+      sub another_a = const (const [4mvar_a[0m ()) another_a
+coercion: a2
+      sub another_a = const (const var_a ()) [4manother_a[0m
+coercion: b
+  const _ b = [4mb[0m

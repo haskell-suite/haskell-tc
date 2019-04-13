@@ -5,38 +5,38 @@ Bindings:
   data List a = [4mNil[0m | Cons a (List a)
 :: Λa. a →  Main.List a →  Main.List a
   data List a = Nil | [4mCons[0m a (List a)
-:: ∀ sk_0_a sk_1_b. (sk_0_a →  sk_1_b) →  Main.List sk_0_a →  Main.List sk_1_b
+:: ∀ a b. (a →  b) →  Main.List a →  Main.List b
   [4mmap f lst =[0m
   [4m  case lst of[0m
   [4m    Nil -> Nil[0m
   [4m    Cons x xs -> Cons (f x) (map f xs)[0m
-:: sk_0_a →  sk_1_b
+:: a →  b
   map [4mf[0m lst =
-:: Main.List sk_0_a
+:: Main.List a
   map f [4mlst[0m =
-:: sk_0_a
+:: a
       Cons [4mx[0m xs -> Cons (f x) (map f xs)
-:: Main.List sk_0_a
+:: Main.List a
       Cons x [4mxs[0m -> Cons (f x) (map f xs)
 
 Proofs:
-coercion: (∀ a. Main.List a) @ sk_0_a
+coercion: (∀ a. Main.List a) @ a
       [4mNil[0m -> Nil
-coercion: (∀ a. a →  Main.List a →  Main.List a) @ sk_0_a
+coercion: (∀ a. a →  Main.List a →  Main.List a) @ a
       [4mCons[0m x xs -> Cons (f x) (map f xs)
-coercion: Main.List sk_0_a
+coercion: Main.List a
     case [4mlst[0m of
-coercion: (∀ a. Main.List a) @ sk_1_b
+coercion: (∀ a. Main.List a) @ b
       Nil -> [4mNil[0m
-coercion: (∀ a. a →  Main.List a →  Main.List a) @ sk_1_b
+coercion: (∀ a. a →  Main.List a →  Main.List a) @ b
       Cons x xs -> [4mCons[0m (f x) (map f xs)
-coercion: sk_0_a →  sk_1_b
+coercion: a →  b
       Cons x xs -> Cons ([4mf[0m x) (map f xs)
-coercion: sk_0_a
+coercion: a
       Cons x xs -> Cons (f [4mx[0m) (map f xs)
-coercion: (∀ a b. (a →  b) →  Main.List a →  Main.List b) @ sk_0_a sk_1_b
+coercion: (∀ a b. (a →  b) →  Main.List a →  Main.List b) @ a b
       Cons x xs -> Cons (f x) ([4mmap[0m f xs)
-coercion: sk_0_a →  sk_1_b
+coercion: a →  b
       Cons x xs -> Cons (f x) (map [4mf[0m xs)
-coercion: Main.List sk_0_a
+coercion: Main.List a
       Cons x xs -> Cons (f x) (map f [4mxs[0m)

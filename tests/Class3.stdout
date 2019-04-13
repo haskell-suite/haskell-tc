@@ -1,29 +1,29 @@
 Bindings:
 :: *
   data [4mString[0m
-:: ∀ sk_21_a. Class3.Super sk_21_a ⇒ sk_21_a →  Class3.String
+:: ∀ a. Class3.Super a ⇒ a →  Class3.String
   [4msuper x = super x[0m
-:: sk_21_a
+:: a
   super [4mx[0m = super x
-:: ∀ v5 v6. (Class3.Super v6, Class3.Super v5) ⇒ v5 →  v6 →  Class3.String
+:: ∀ a b. (Class3.Super b, Class3.Super a) ⇒ a →  b →  Class3.String
   [4mbyInst a b = super (a,b)[0m
-:: v5
+:: a
   byInst [4ma[0m b = super (a,b)
-:: v6
+:: b
   byInst a [4mb[0m = super (a,b)
 
 Proofs:
 coercion: ∀ b a. (Class3.Super a, Class3.Super b) ⇒ Class3.Super (a
                                                                  ,b)
   instance [4m(Super a, Super b) => Super (a,b)[0m
-coercion: (∀ a. Class3.Super a ⇒ a →  Class3.String) @ sk_21_a
+coercion: (∀ a. Class3.Super a ⇒ a →  Class3.String) @ a
   super x = [4msuper[0m x
-coercion: sk_21_a
+coercion: a
   super x = super [4mx[0m
-coercion: (∀ a. Class3.Super a ⇒ a →  Class3.String) @ (v5
-                                                       ,v6)
+coercion: (∀ a. Class3.Super a ⇒ a →  Class3.String) @ (a
+                                                       ,b)
   byInst a b = [4msuper[0m (a,b)
-coercion: v5
+coercion: a
   byInst a b = super ([4ma[0m,b)
-coercion: v6
+coercion: b
   byInst a b = super (a,[4mb[0m)

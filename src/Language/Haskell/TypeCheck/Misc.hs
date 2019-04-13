@@ -1,17 +1,20 @@
+{-# LANGUAGE ParallelListComp #-}
 module Language.Haskell.TypeCheck.Misc where
 
-import           Language.Haskell.TypeCheck.Monad hiding (getMetaTyVars)
-import           Language.Haskell.TypeCheck.Types
-import           Language.Haskell.TypeCheck.Proof
 import           Language.Haskell.Scope
-import           Language.Haskell.Exts.SrcLoc
-import qualified Language.Haskell.TypeCheck.Pretty as Doc
+import           Language.Haskell.TypeCheck.Monad
+-- import qualified Language.Haskell.TypeCheck.Pretty as Doc
+import           Language.Haskell.TypeCheck.Types
 
-import Data.Either
-import           Control.Monad.State
 import           Control.Monad.Except
-import           Data.Map                         (Map)
-import qualified Data.Map                         as Map
+import           Control.Monad.State
+import           Data.Either
+import           Data.List
+import           Data.Map                          (Map)
+import qualified Data.Map                          as Map
+import           Data.Maybe
+import           Data.Set                          (Set)
+import qualified Data.Set                          as Set
 import           Data.STRef
 
 -- property:    \ty -> getFreeTyVars ty == []
@@ -20,7 +23,7 @@ import           Data.STRef
 getFreeTyVars :: [TcType s] -> TI s [TcVar]
 getFreeTyVars tys = goMany [] tys []
   where
-    goMany bound [] acc = pure acc
+    goMany _bound [] acc     = pure acc
     goMany bound (x:xs) acc = go bound x acc >>= goMany bound xs
     go bound ty acc =
       case ty of
@@ -32,13 +35,37 @@ getFreeTyVars tys = goMany [] tys []
                 | otherwise      -> pure (v:acc)
         TcCon{} -> pure acc
         TcUnboxedTuple tys -> goMany bound tys acc
-        TcMetaVar var@(TcMetaRef _ ref) -> do
+        TcMetaVar (TcMetaRef _ ref) -> do
           mbTy <- liftST $ readSTRef ref
           case mbTy of
             Just ty' -> go bound ty' acc
             Nothing  -> pure acc
         TcTuple tys -> goMany bound tys acc
         TcList elt -> go bound elt acc
+        TcStar -> pure acc
+
+getAllTyVars :: [TcType s] -> TI s [TcVar]
+getAllTyVars tys = reverse <$> goMany tys []
+  where
+    goMany [] acc     = pure acc
+    goMany (x:xs) acc = go x acc >>= goMany xs
+    go ty acc =
+      case ty of
+        TcForall _tvs (TcQual _ ty') -> go ty' acc
+        TcFun a b -> go b =<< go a acc
+        TcApp a b -> go a =<< go b acc
+        TcRef v | v `elem` acc   -> pure acc
+                | otherwise      -> pure (v:acc)
+        TcCon{} -> pure acc
+        TcUnboxedTuple tys -> goMany tys acc
+        TcMetaVar (TcMetaRef _ ref) -> do
+          mbTy <- liftST $ readSTRef ref
+          case mbTy of
+            Just ty' -> go ty' acc
+            Nothing  -> pure acc
+        TcTuple tys -> goMany tys acc
+        TcList elt -> go elt acc
+        TcStar -> pure acc
 
 predFreeTyVars :: [TcPred s] -> TI s [TcVar]
 predFreeTyVars preds = getFreeTyVars [ ty | TcIsIn _class ty <- preds ]
@@ -71,7 +98,7 @@ getZonkedTypes = do
 getMetaTyVars :: [TcType s] -> TI s [TcMetaVar s]
 getMetaTyVars tys = goMany tys []
   where
-    goMany [] acc = pure acc
+    goMany [] acc     = pure acc
     goMany (x:xs) acc = go x acc >>= goMany xs
     go ty acc =
       case ty of
@@ -91,6 +118,46 @@ getMetaTyVars tys = goMany tys []
         TcTuple tys -> goMany tys acc
         TcList elt -> go elt acc
         TcStar -> pure acc
+
+getProofMetaTyVars :: TcProof s -> TI s [TcMetaVar s]
+getProofMetaTyVars p =
+  case p of
+    TcProofAbs _ p' -> getProofMetaTyVars p'
+    TcProofAp p' ts -> liftM2 (++) (getMetaTyVars ts) (getProofMetaTyVars p')
+    TcProofLam _ t p' -> liftM2 (++) (getMetaTyVars [t]) (getProofMetaTyVars p')
+    TcProofSrc t -> getMetaTyVars [t]
+    TcProofPAp pl pr -> liftM2 (++) (getProofMetaTyVars pl) (getProofMetaTyVars pr)
+    TcProofVar{} -> pure []
+
+getProofTyVars :: TcProof s -> TI s (Set String)
+getProofTyVars p =
+  case p of
+    TcProofAbs tvs p' -> flip Set.difference (toSet tvs) <$> getProofTyVars p'
+    TcProofAp p' ts -> liftM2 (Set.union) (fromTy ts) (getProofTyVars p')
+    TcProofLam _ t p' -> liftM2 (Set.union) (fromTy [t]) (getProofTyVars p')
+    TcProofSrc t -> fromTy [t]
+    TcProofPAp pl pr -> liftM2 (Set.union) (getProofTyVars pl) (getProofTyVars pr)
+    TcProofVar{} -> pure Set.empty
+  where
+    toSet tvs = Set.fromList $
+      [ name | TcVar name _ <- tvs ] ++ [ name | TcSkolemVar name <- tvs ]
+    fromTy tys = do
+      lst <- getFreeTyVars tys
+      return $ toSet lst
+
+getProofUniques :: TcProof s -> TI s [Int]
+getProofUniques p =
+  case p of
+    TcProofAbs _ p' -> getProofUniques p'
+    TcProofAp p' ts -> liftM2 (++) (fromTy ts) (getProofUniques p')
+    TcProofLam _ t p' -> liftM2 (++) (fromTy [t]) (getProofUniques p')
+    TcProofSrc t -> fromTy [t]
+    TcProofPAp pl pr -> liftM2 (++) (getProofUniques pl) (getProofUniques pr)
+    TcProofVar{} -> pure []
+  where
+    fromTy tys = do
+      lst <- getAllTyVars tys
+      return $ [ u | TcUniqueVar u <- lst ]
 
 predMetaTyVars :: [TcPred s] -> TI s [TcMetaVar s]
 predMetaTyVars preds = getMetaTyVars [ ty | TcIsIn _class ty <- preds ]
@@ -120,12 +187,12 @@ substituteTyVars vars = go
     go (TcMetaVar meta@(TcMetaRef _name var)) = do
       mbVal <- liftST $ readSTRef var
       case mbVal of
-        Nothing -> pure $ TcMetaVar meta
+        Nothing  -> pure $ TcMetaVar meta
         Just val -> go val
     go (TcUnboxedTuple tys) = TcUnboxedTuple <$> mapM go tys
     go (TcTuple tys)        = TcTuple <$> mapM go tys
     go (TcList ty)          = TcList <$> go ty
-    go TcUndefined          = pure TcUndefined
+    go TcStar               = pure TcStar
 
 substituteTyVarsPred :: [(TcVar, TcType s)] -> TcPred s -> TI s (TcPred s)
 substituteTyVarsPred var (TcIsIn cls ty) =
@@ -153,7 +220,7 @@ substituteMetaVars vars = go
     go (TcUnboxedTuple tys) = TcUnboxedTuple <$> mapM go tys
     go (TcTuple tys)        = TcTuple <$> mapM go tys
     go (TcList ty)          = TcList <$> go ty
-    go TcUndefined          = pure TcUndefined
+    go TcStar               = pure TcStar
 
 substituteMetaVarsPred :: [(TcMetaVar s, TcType s)] -> TcPred s -> TI s (TcPred s)
 substituteMetaVarsPred var (TcIsIn cls ty) =
@@ -161,8 +228,8 @@ substituteMetaVarsPred var (TcIsIn cls ty) =
 
 
 writeMetaVar :: TcMetaVar s -> TcType s -> TI s ()
-writeMetaVar (TcMetaRef name var) ty = do
-  -- debug $ "write " ++ name ++ " = " ++ show (Doc.pretty ty)
+writeMetaVar (TcMetaRef _name var) ty = do
+  -- debug $ "write " ++ show name ++ " = " ++ show (Doc.pretty ty)
   liftST $ do
     mbVal <- readSTRef var
     case mbVal of
@@ -184,9 +251,14 @@ expectList (Infer ref) = do
   return ty
 
 newSkolemVar :: TcVar -> TI s TcVar
-newSkolemVar (TcVar name src) = do
-  u <- newUnique
-  return $ TcVar ("sk_" ++ show u ++ "_"++name) src
+newSkolemVar (TcVar name _loc) = do
+  skolems <- gets tcStateSkolems
+  let newName = head $ filter (`Set.notMember` skolems) (name : [ name ++ show n | n <- [2..] ])
+  modify $ \st -> st{tcStateSkolems = Set.insert newName skolems}
+  return $ TcSkolemVar newName
+newSkolemVar _ = error "expected simple tcvar"
+  -- u <- newUnique
+  -- return $ TcVar ("sk_" ++ show u ++ "_"++name) src
 
 -- split
 --   1. simplify contexts
@@ -205,3 +277,93 @@ simplifyAndDeferPredicates outer_meta preds = do
   -- debug $ "Defer: " ++ show (Doc.pretty ds)
   setPredicates ds
   return rs
+
+renameTyVars :: [(TcVar, TcVar)] -> TcType s -> TI s (TcType s)
+renameTyVars vars = go
+  where
+    rename tv = fromMaybe tv (lookup tv vars)
+    renamePred (TcIsIn e t) = TcIsIn e <$> go t
+    go (TcForall tvs (TcQual preds ty)) =
+      TcForall (map rename tvs) <$>
+        (TcQual <$> mapM renamePred preds <*> go ty)
+    go (TcFun a b)          = TcFun <$> go a <*> go b
+    go (TcApp a b)          = TcApp <$> go a <*> go b
+    go (TcRef var)          = pure $ TcRef $ rename var
+    go (TcCon con)          = pure $ TcCon con
+    go (TcMetaVar meta@(TcMetaRef _name var)) = do
+      mbVal <- liftST $ readSTRef var
+      case mbVal of
+        Nothing  -> pure $ TcMetaVar meta
+        Just val -> go val
+    go (TcUnboxedTuple tys) = TcUnboxedTuple <$> mapM go tys
+    go (TcTuple tys)        = TcTuple <$> mapM go tys
+    go (TcList ty)          = TcList <$> go ty
+    go TcStar               = pure TcStar
+
+renameTyVarsProof :: [(TcVar, TcVar)] -> TcProof s -> TI s (TcProof s)
+renameTyVarsProof vars = go
+  where
+    rename tv = fromMaybe tv (lookup tv vars)
+    go (TcProofAbs tvs p) = TcProofAbs (map rename tvs) <$> go p
+    go (TcProofAp p tys) = TcProofAp <$> go p <*> mapM (renameTyVars vars) tys
+    go (TcProofLam n t p) = TcProofLam n <$> renameTyVars vars t <*> go p
+    go (TcProofSrc t) = TcProofSrc <$> renameTyVars vars t
+    go (TcProofPAp pl pr) = TcProofPAp <$> go pl <*> go pr
+    go (TcProofVar n) = pure $ TcProofVar n
+
+{-
+input:
+  Proof: ∀ 1 3. 0<1<1> →  2<3<3>> →  3<3>>
+  Proof: 2<3<3>>
+  Proof: 2<3<3>>
+
+output (skolems=[]):
+  Proof: ∀ a b. a →  b →  b
+  Proof: b
+  Proof: b
+
+output (skolems=[a]):
+  Proof: ∀ b c. b →  c →  c
+  Proof: c
+  Proof: c
+-}
+renameProofs :: TI s ()
+renameProofs = do
+  skolems <- gets tcStateSkolems --    :: !(Set String)
+  proofRefs <- gets tcStateProofGroup -- :: ![STRef s (Maybe (TcProof s))]
+
+  all_meta <- getFreeMetaVariables
+  unless (null all_meta) $ error "renameProofs: Unexpected meta variables"
+
+  proofs <- liftST $ map fromJust <$> mapM readSTRef proofRefs
+
+  -- forM_ proofs $ \proof ->
+  --   debug $ "  Proof: " ++ show (Doc.pretty proof)
+
+  usedTypes <- Set.unions <$> mapM getProofTyVars proofs
+
+  let reserved = skolems `Set.union` usedTypes
+      a_to_z = [ [c] | c <- ['a' .. 'z']]
+      all_names = concat $ a_to_z : [ map (++show n) a_to_z | n <- [2..] ]
+
+      usableNames = filter (`Set.notMember` reserved) all_names
+
+  uniques <- nub . concat <$> mapM getProofUniques proofs
+  -- debug $ "Uniques: " ++ show uniques
+  -- debug $ "Reserved: " ++ show reserved
+  let replace = [ (TcUniqueVar u, TcSkolemVar name) | u <- uniques | name <- usableNames ]
+
+  forM_ proofRefs $ \ref -> do
+    Just proof <- liftST $ readSTRef ref
+    proof' <- renameTyVarsProof replace proof
+    liftST $ writeSTRef ref (Just proof')
+
+  -- FIXME: This is an inefficient hack. We want to replace numbered tcvars with named
+  --        tcvars but not all values may have numbered tcvars in their signature.
+  values <- gets (Map.toList . tcStateValues)
+  forM_ values $ \(key, ty) -> do
+    ty' <- renameTyVars replace ty
+    setAssumption key ty'
+
+  modify $ \st -> st{tcStateProofGroup = []}
+  return ()

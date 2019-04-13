@@ -1,31 +1,37 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric      #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Language.Haskell.TypeCheck.Types where
 
-import Data.Data
-import GHC.Generics
 import           Control.Monad.ST
+import           Control.Monad.ST.Unsafe
+import           Data.Data
 import           Data.STRef
+import           GHC.Generics
 import           Language.Haskell.Exts.SrcLoc
 import qualified Language.Haskell.TypeCheck.Pretty as P
 import           System.IO.Unsafe
-import           Control.Monad.ST.Unsafe
 import qualified Text.PrettyPrint.ANSI.Leijen      as Doc
 
 import           Language.Haskell.Scope            (Entity (..), Location,
                                                     QualifiedName (..))
 import qualified Language.Haskell.Scope            as Scope
 
-type SkolemRef = Int
-
 -- Type variables are uniquely identified by their name and binding point.
-data TcVar = TcVar String Location
+data TcVar
+  = TcVar String Location
+  | TcSkolemVar String
+  | TcUniqueVar Int
     deriving ( Show, Eq, Ord, Data, Generic )
 
-data TcMetaVar s = TcMetaRef String (STRef s (Maybe (TcType s)))
+-- data TcVar_ = TcVar String Location | SkolemVar String | UniqueVar Int
+
+data TyVar = TyVar String
+  deriving ( Show, Eq, Ord, Data, Generic )
+
+data TcMetaVar s = TcMetaRef Int (STRef s (Maybe (TcType s)))
 instance Show (TcMetaVar s) where
-    show (TcMetaRef name _) = name
+    show (TcMetaRef name _) = show name
 instance Eq (TcMetaVar s) where
     TcMetaRef _ r1 == TcMetaRef _ r2 = r1==r2
 instance Ord (TcMetaVar s) where
@@ -42,12 +48,11 @@ data TcType s
     | TcCon QualifiedName
     -- Instantiated tyvar
     | TcMetaVar (TcMetaVar s)
-    | TcSkolemVar SkolemRef
     | TcUnboxedTuple [TcType s]
     | TcTuple [TcType s]
     | TcList (TcType s)
     | TcStar
-    | TcUndefined
+    -- | TcUndefined
     deriving ( Show, Eq, Ord )
 
 -- Foralls can appear anywhere.
@@ -63,31 +68,31 @@ type ExpectedRho s = Expected s (Rho s)
 --     deriving ( Show, Eq, Ord )
 
 data Type
-    = TyForall [TcVar] (Qualified Type)
+    = TyForall [TyVar] (Qualified Type)
     | TyFun Type Type
     | TyApp Type Type
-    | TyRef TcVar
+    | TyRef TyVar
     | TyCon QualifiedName
     | TyUnboxedTuple [Type]
     | TyTuple [Type]
     | TyList Type
     | TyStar
-    | TyUndefined
+    -- | TyUndefined
     deriving ( Show, Eq, Ord, Data, Generic )
 
 toTcType :: Type -> TcType s
 toTcType ty =
   case ty of
     TyForall tyvars (predicates :=> t) ->
-      TcForall tyvars (TcQual (map toTcPred predicates) (toTcType t))
+      TcForall [ TcVar name [] | TyVar name <- tyvars ] (TcQual (map toTcPred predicates) (toTcType t))
     TyFun t1 t2 -> TcFun (toTcType t1) (toTcType t2)
     TyApp t1 t2 -> TcApp (toTcType t1) (toTcType t2)
-    TyRef tyvar -> TcRef tyvar
+    TyRef (TyVar name) -> TcRef (TcVar name [])
     TyCon qualifiedName -> TcCon qualifiedName
     TyUnboxedTuple tys -> TcUnboxedTuple (map toTcType tys)
     TyTuple tys -> TcTuple (map toTcType tys)
     TyList t1 -> TcList (toTcType t1)
-    TyUndefined -> TcUndefined
+    -- TyUndefined -> TcUndefined
     TyStar -> TcStar
 
 toTcPred :: Predicate -> TcPred s
@@ -104,7 +109,7 @@ data TcProof s
   deriving (Show)
 
 data Proof
-  = ProofAbs [TcVar] Proof
+  = ProofAbs [TyVar] Proof
   | ProofAp Proof [Type]
   | ProofLam Int Type Proof
   | ProofSrc Type
@@ -149,13 +154,18 @@ instance P.Pretty (TcType s) where
       TcTuple tys -> Doc.tupled (map P.pretty tys)
       TcList ty ->
         Doc.brackets (P.pretty ty)
-      TcUndefined ->
-        Doc.red (Doc.text "undefined")
+      -- TcUndefined ->
+      --   Doc.red (Doc.text "undefined")
       TcStar ->
         Doc.text "*"
 
 instance P.Pretty TcVar where
     pretty (TcVar ident _src) = Doc.text ident
+    pretty (TcSkolemVar ident) = Doc.text "skolem" <> Doc.parens (Doc.text ident)
+    pretty (TcUniqueVar ident) = Doc.int ident
+
+instance P.Pretty TyVar where
+    pretty (TyVar ident) = Doc.text ident
 
 unsafePerformST :: ST s a -> a
 unsafePerformST = unsafePerformIO . unsafeSTToIO
@@ -166,8 +176,8 @@ instance P.Pretty (TcMetaVar s) where
         unsafePerformST (do
         mbTy <- readSTRef ref
         case mbTy of
-            Just ty -> return $ Doc.blue (Doc.text ident) Doc.<> Doc.angles (P.prettyPrec p ty)
-            Nothing -> return $ Doc.red (Doc.text ident))
+            Just ty -> return $ Doc.blue (Doc.int ident) Doc.<> Doc.angles (P.prettyPrec p ty)
+            Nothing -> return $ Doc.red (Doc.int ident))
     -- pretty (TcMetaRef ident _) = Doc.red (Doc.text ident)
 
 instance P.Pretty t => P.Pretty (TcQual s t) where
@@ -224,8 +234,8 @@ instance P.Pretty Type where
       TyList ty ->
         Doc.brackets (P.pretty ty)
       TyStar -> Doc.text "*"
-      TyUndefined ->
-        Doc.red (Doc.text "undefined")
+      -- TyUndefined ->
+      --   Doc.red (Doc.text "undefined")
 
 instance P.Pretty Proof where
   prettyPrec prec p =
@@ -242,6 +252,22 @@ instance P.Pretty Proof where
       ProofPAp p1 p2 -> P.parensIf (prec > arrowPrecedence) $
         P.prettyPrec arrowPrecedence p1 Doc.<+> P.prettyPrec appPrecedence p2
       ProofVar n -> Doc.int n
+
+instance P.Pretty (TcProof s) where
+  prettyPrec prec p =
+    case p of
+      TcProofAbs tvs p' -> P.parensIf (prec > 0) $
+        Doc.text "Λ" Doc.<> Doc.hsep (map P.pretty tvs) Doc.<> Doc.dot Doc.<+> P.pretty p'
+      TcProofAp p' tys -> P.parensIf (prec > 0) $
+        P.prettyPrec arrowPrecedence p' Doc.<+> Doc.text "@" Doc.<+> Doc.hsep (map (P.prettyPrec appPrecedence) tys)
+      TcProofLam n ty p' -> -- P.parensIf (True) $
+        Doc.text "λ" Doc.<>
+        Doc.int n Doc.<> Doc.text "::" Doc.<> P.prettyPrec appPrecedence ty Doc.<>
+        Doc.dot Doc.<+> P.pretty p'
+      TcProofSrc ty -> P.prettyPrec prec ty
+      TcProofPAp p1 p2 -> P.parensIf (prec > arrowPrecedence) $
+        P.prettyPrec arrowPrecedence p1 Doc.<+> P.prettyPrec appPrecedence p2
+      TcProofVar n -> Doc.int n
 
 data TcQual s t = TcQual [TcPred s] t
     deriving ( Show, Eq, Ord )

@@ -1,15 +1,15 @@
 Bindings:
-:: ∀ v3. (v3 →  v3) →  v3 →  v3
+:: ∀ a. (a →  a) →  a →  a
   [4mtwice fn v = fn (fn v)[0m
-:: v3 →  v3
+:: a →  a
   twice [4mfn[0m v = fn (fn v)
-:: v3
+:: a
   twice fn [4mv[0m = fn (fn v)
 
 Proofs:
-coercion: v3 →  v3
+coercion: a →  a
   twice fn v = [4mfn[0m (fn v)
-coercion: v3 →  v3
+coercion: a →  a
   twice fn v = fn ([4mfn[0m v)
-coercion: v3
+coercion: a
   twice fn v = fn (fn [4mv[0m)
