@@ -211,8 +211,8 @@ instance P.Pretty Predicate where
 instance P.Pretty Type where
   prettyPrec p thisTy =
     case thisTy of
-      TyForall [] ([] :=> t) ->
-        P.prettyPrec p t
+      -- TyForall [] ([] :=> t) ->
+      --   P.prettyPrec p t
       TyForall vars qual -> P.parensIf (p > 0) $
         Doc.text "∀" Doc.<+> Doc.hsep (map P.pretty vars) Doc.<>
         Doc.dot Doc.<+> P.pretty qual

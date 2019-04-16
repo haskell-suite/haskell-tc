@@ -308,6 +308,7 @@ zonkType :: TcType s -> TI s T.Type
 zonkType ty = do
   -- debug $ "Zonk: " ++ show (Doc.pretty ty)
   case ty of
+    TcForall [] (TcQual [] tty) -> zonkType tty
     TcForall tyvars (TcQual predicates tty) ->
       T.TyForall (map zonkTcVar tyvars) <$>
         ((:=>) <$> mapM zonkPredicate predicates <*> zonkType tty)
