@@ -1,9 +1,20 @@
 \documentclass[pdf]{beamer}
+
+\usepackage{color}
+\usepackage{listings}
+
+%\mode<presentation> { \setbeamercovered{transparent} }
 \mode<presentation>{}
 
 \title{Design of a typechecker}
 \author{David Himmelstrup}
 \date{May 8th, 2019}
+
+%\def\beamerorig@set@color{%
+%  \pdfliteral{\current@color}%
+%  \aftergroup\reset@color
+%}
+%\def\beamerorig@reset@color{\pdfliteral{\current@color}}
 
 \begin{document}
 
@@ -11,7 +22,7 @@
   \titlepage
 \end{frame}
 
-\begin{frame}
+\begin{frame}{Haskell Suite}
   \begin{center}
     \includegraphics[scale=0.5]{haskell-suite.png}
   \end{center}
@@ -19,9 +30,151 @@
 
 \begin{frame}
   \begin{itemize}
-    \item \makebox[3cm]{haskell-src-exts\hfill} :: String $\rightarrow$ AST SrcLoc
-    \item \makebox[3cm]{haskell-scope\hfill} :: AST SrcLoc $\rightarrow$ AST Origin
-    \item \makebox[3cm]{haskell-tc\hfill} :: AST Origin $\rightarrow$ ???
+    \item \makebox[4cm]{haskell-src-exts\hfill} :: String $\rightarrow$ AST SrcLoc
+    \item \makebox[4cm]{haskell-scope\hfill} :: AST SrcLoc $\rightarrow$ AST Origin
+    \item \makebox[4cm]{haskell-tc\hfill} :: AST Origin $\rightarrow$ ???
+    \pause
+    \item \makebox[4cm]{typing-haskell-in-haskell\hfill} :: AST $\rightarrow$ [TypeSig]
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Use-cases}
+  \begin{itemize}
+    \item Compilers
+    \item Documentation systems
+    \item Type-directed source code suggestions
+    \item Teaching
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{GHC}
+  \begin{itemize}
+    \item Shuffles code
+    \item Deletes code
+    \item Adds new code
+    \item Names every type variable 'p'
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    \texttt{\underline{length} "pie"}
+  \end{center}
+  \pause
+  \mode<presentation> { \setbeamercovered{transparent} }
+  \begin{align*}
+    \forall a. [a] \rightarrow Int & \qquad \longrightarrow & [Char] \rightarrow Int \\
+    \pause
+    & \qquad @Char \\
+  \end{align*}
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    \texttt{\underline{f}}
+  \end{center}
+  \pause
+  \mode<presentation> { \setbeamercovered{transparent} }
+  \begin{align*}
+    \forall a. a \rightarrow \forall b. b & \qquad \qquad \qquad \longrightarrow & \forall a b. a \rightarrow b\\
+    \pause
+    & \qquad \Lambda a b. \lambda arg. \texttt{f @a arg @b} \\
+  \end{align*}
+\end{frame}
+
+\begin{frame}
+  \makebox[4cm]{haskell-tc\hfill} :: AST Origin $\rightarrow$ AST Typed
+
+  Type signature for bindings, coercions for each usage site.
+\end{frame}
+
+\begin{frame}{Problems}
+  \mode<presentation> { \setbeamercovered{transparent} }
+  \begin{enumerate}
+    \item Code shuffle
+
+      \uncover<2->{
+        Annotate AST with mutable references. Apply TC algorithm. Freeze AST.
+      }
+    \item Naming type variables
+
+    \uncover<3->{
+      \begin{itemize}
+        \item No scoping rules.
+        \item Preference to user-written types.
+        \item No shadowing.
+      \end{itemize}
+    }
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell]
+const x _ = x
+  where
+    id x = x
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell,mathescape=true]
+const :: $\forall a b. a \rightarrow  b \rightarrow  a$
+const x _ = x
+  where
+    id :: $\forall c. c \rightarrow  c$
+    id x = x
+\end{lstlisting}
+\end{frame}
+
+
+
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell,mathescape=true]
+outer x = x
+  where
+    inner :: a -> a
+    inner y = const x y
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell,mathescape=true]
+outer :: $\forall b. b \rightarrow b$
+outer x = x
+  where
+    inner :: $\forall a. a \rightarrow a$
+    inner y = const @b @a x y
+\end{lstlisting}
+\end{frame}
+
+
+
+
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell,mathescape=true]
+id1 x = id2 x
+id2 x = id1 x
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Naming}
+\begin{lstlisting}[language=Haskell,mathescape=true]
+id1 :: $\forall a b. a \rightarrow  b$
+id1 x = id2 x
+id2 :: $\forall a b. a \rightarrow  b$
+id2 x = id1 x
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}
+  \Large{haskell-tc}
+  \begin{itemize}
+    \item Pure API (with ST under the hood)
+    \item Annotates, never modifies
+    \item Human-readable output
+    \item Aims to support Haskell2010 + RankNTypes
   \end{itemize}
 \end{frame}
 
