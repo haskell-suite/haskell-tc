@@ -144,7 +144,7 @@ outer :: $\forall b. b \rightarrow b$
 outer x = x
   where
     inner :: $\forall a. a \rightarrow a$
-    inner y = const @b @a x y
+    inner y = const @a @b y x
 \end{lstlisting}
 \end{frame}
 
