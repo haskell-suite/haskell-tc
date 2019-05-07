@@ -1,0 +1,28 @@
+\documentclass[pdf]{beamer}
+\mode<presentation>{}
+
+\title{Design of a typechecker}
+\author{David Himmelstrup}
+\date{May 8th, 2019}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    \includegraphics[scale=0.5]{haskell-suite.png}
+  \end{center}
+\end{frame}
+
+\begin{frame}
+  \begin{itemize}
+    \item \makebox[3cm]{haskell-src-exts\hfill} :: String $\rightarrow$ AST SrcLoc
+    \item \makebox[3cm]{haskell-scope\hfill} :: AST SrcLoc $\rightarrow$ AST Origin
+    \item \makebox[3cm]{haskell-tc\hfill} :: AST Origin $\rightarrow$ ???
+  \end{itemize}
+\end{frame}
+
+\end{document}
